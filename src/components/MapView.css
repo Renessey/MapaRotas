@@ -1,0 +1,1312 @@
+.map-container {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #f1f5f9;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.06);
+}
+
+.map-container.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%);
+  padding: 32px;
+}
+
+.leaflet-map {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  z-index: 1;
+}
+
+.leaflet-map.is-adding-quadra,
+.leaflet-map.is-adding-quadra .leaflet-interactive {
+  cursor: crosshair !important;
+}
+
+/* Controles Flutuantes do Mapa */
+.map-floating-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  pointer-events: none;
+  max-width: calc(100% - 28px);
+}
+
+.map-floating-controls > * {
+  pointer-events: auto;
+}
+
+.map-control-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.map-control-btn:hover {
+  background: #ffffff;
+  border-color: #2563eb;
+  color: #2563eb;
+  transform: translateY(-1px);
+}
+
+.quadra-toggle-btn.active {
+  background: #f0fdf4;
+  border-color: #16a34a;
+  color: #15803d;
+}
+
+.quadra-icon-badge {
+  background: #16a34a;
+  color: white;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+/* Formulário de Busca de Quadra */
+.map-quadra-search-form {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 2px 4px 2px 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.map-quadra-search-input {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  width: 105px;
+  color: #0f172a;
+  padding: 4px 0;
+}
+
+.map-quadra-search-input:focus {
+  outline: none;
+}
+
+.btn-search-quadra {
+  background: transparent;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.map-style-toggle {
+  display: flex;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.style-btn {
+  border: none;
+  background: transparent;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.style-btn:hover {
+  color: #1e293b;
+}
+
+.style-btn.active {
+  background: #2563eb;
+  color: white;
+}
+
+.map-badge-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: rgba(15, 23, 42, 0.92);
+  color: white;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+
+.dot-live {
+  width: 7px;
+  height: 7px;
+  background: #22c55e;
+  border-radius: 50%;
+  animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Marcadores de Quadras de Itaipuaçu (Verde como na foto e no PDF) */
+.quadra-div-icon {
+  background: transparent !important;
+  border: none !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  contain: layout style;
+}
+
+.quadra-div-icon:hover {
+  z-index: 2500 !important;
+}
+
+.quadra-marker-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 5px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1.5px solid #16a34a;
+  border-radius: 4px;
+  color: #15803d;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  user-select: none;
+  contain: paint;
+}
+
+.quadras-zoom-medium .quadra-marker-box {
+  padding: 1.5px 4px;
+  font-size: 10px;
+}
+
+.quadras-zoom-compact .quadra-marker-box {
+  padding: 1px 3px;
+  font-size: 9px;
+  border-width: 1px;
+}
+
+.quadra-marker-box:hover {
+  background: #16a34a;
+  color: white;
+  border-color: #15803d;
+  transform: scale(1.2);
+  z-index: 1000;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+}
+
+.quadra-marker-box.has-delivery {
+  background: #f59e0b;
+  border-color: #d97706;
+  color: white;
+  font-size: 12px;
+  padding: 3px 6px;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.7);
+  animation: pulse-quadra 2s infinite;
+  z-index: 500;
+}
+
+.quadra-marker-box.is-highlighted {
+  background: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: white !important;
+  font-size: 11px !important;
+  padding: 2px 5px !important;
+  transform: scale(1.3) !important;
+  box-shadow: 0 0 15px rgba(37, 99, 235, 0.8) !important;
+  z-index: 2000 !important;
+}
+
+.quadra-marker-box.is-draggable {
+  cursor: grab !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.6) !important;
+  font-size: 11px !important;
+  padding: 2px 5px !important;
+  transform: scale(1.15);
+  touch-action: none;
+  will-change: transform;
+  z-index: 1000 !important;
+}
+
+.quadra-marker-box.is-draggable:active {
+  cursor: grabbing !important;
+  background: #dc2626 !important;
+  border-color: #991b1b !important;
+  color: #ffffff !important;
+  transform: scale(1.25);
+  box-shadow: 0 0 16px rgba(220, 38, 38, 0.9) !important;
+}
+
+.quadra-div-icon.is-dragging-red {
+  z-index: 2600 !important;
+}
+
+.quadra-div-icon.is-dragging-red .quadra-marker-box,
+.quadra-marker-box.is-pending-save {
+  background: #dc2626 !important;
+  border-color: #991b1b !important;
+  color: #ffffff !important;
+  font-size: 11px !important;
+  padding: 2px 5px !important;
+  transform: scale(1.22);
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.78) !important;
+  z-index: 2500 !important;
+}
+
+.quadra-div-icon.is-dragging-red .quadra-marker-box:hover,
+.quadra-marker-box.is-pending-save:hover {
+  background: #b91c1c !important;
+  color: #ffffff !important;
+}
+
+.quadra-div-icon.is-dragging-red .drag-handle-dot,
+.quadra-marker-box.is-pending-save .drag-handle-dot,
+.quadra-marker-box.is-draggable:active .drag-handle-dot {
+  color: #ffffff !important;
+}
+
+.drag-handle-dot {
+  font-size: 11px;
+  line-height: 1;
+  margin-right: 3px;
+  color: #2563eb;
+  font-weight: 900;
+}
+
+.adjust-toggle-btn.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border-color: #1d4ed8 !important;
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+}
+
+.adjust-icon {
+  font-size: 13px;
+}
+
+.popup-drag-hint {
+  margin: 6px 0 8px 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+  border-radius: 4px;
+  color: #1e40af;
+}
+
+.popup-badge.drag-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.popup-badge.drag-badge.pending-save-badge {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.delivery-indicator-dot {
+  width: 6px;
+  height: 6px;
+  background: #ffffff;
+  border-radius: 50%;
+  margin-left: 3px;
+  animation: pulse-dot 1s infinite;
+}
+
+@keyframes pulse-quadra {
+  0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.5); }
+  50% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.95); }
+}
+
+.quadra-deliveries-list {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quadra-delivery-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.deliv-idx {
+  font-size: 10px;
+  font-weight: 700;
+  background: #2563eb;
+  color: white;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.deliv-name {
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deliv-lote {
+  font-size: 10px;
+  font-weight: 700;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* Excluir Quadra no Popup */
+.popup-delete-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.btn-delete-quadra {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-delete-quadra:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+  color: #b91c1c;
+}
+
+.delete-confirm-box {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.delete-confirm-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #991b1b;
+  text-align: center;
+}
+
+.delete-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.btn-cancel-delete {
+  padding: 6px 8px;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-cancel-delete:hover {
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.btn-confirm-delete {
+  padding: 6px 8px;
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #b91c1c;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-confirm-delete:hover {
+  background: #b91c1c;
+}
+
+/* Custom Marker Pins */
+.custom-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.custom-marker-wrapper {
+  position: relative;
+  width: 30px;
+  height: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.custom-marker-wrapper:hover {
+  transform: translateY(-4px) scale(1.1);
+  z-index: 1000;
+}
+
+.custom-marker-pin {
+  width: 30px;
+  height: 30px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  border: 2px solid white;
+}
+
+.pin-normal {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+}
+
+.pin-start {
+  background: linear-gradient(135deg, #10b981 0%, #047857 100%);
+}
+
+.pin-end {
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+}
+
+.pin-quadra {
+  background: linear-gradient(135deg, #f97316 0%, #c2410c 100%);
+}
+
+.custom-marker-text {
+  transform: rotate(45deg);
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.custom-marker-shadow {
+  width: 14px;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 50%;
+  margin-top: 4px;
+  filter: blur(1px);
+}
+
+/* Marcador Selecionado */
+.custom-marker-wrapper.pin-selected {
+  transform: translateY(-6px) scale(1.18);
+  z-index: 10000;
+}
+
+.custom-marker-wrapper.pin-selected .custom-marker-pin {
+  border: 3px solid #facc15;
+  box-shadow: 0 0 15px rgba(250, 204, 21, 0.7);
+}
+
+.custom-marker-pulse {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.4);
+  animation: marker-pulse 1.8s infinite;
+  pointer-events: none;
+}
+
+@keyframes marker-pulse {
+  0% { transform: translateX(-50%) scale(0.5); opacity: 1; }
+  100% { transform: translateX(-50%) scale(2.2); opacity: 0; }
+}
+
+/* Popups Customizados */
+.custom-popup .leaflet-popup-content-wrapper {
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.custom-popup .leaflet-popup-content {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.popup-card {
+  padding: 16px;
+  background: white;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.popup-badge {
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.popup-badge.delivery-tag {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.popup-order {
+  font-family: monospace;
+  font-size: 11px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.popup-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.popup-body {
+  margin-bottom: 12px;
+}
+
+.popup-address {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.popup-quadra-tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.popup-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.popup-tag.quadra {
+  background: #ffedd5;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.popup-tag.lote {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.popup-meta {
+  margin: 3px 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.popup-meta.font-mono {
+  font-family: monospace;
+}
+
+.popup-phone {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.popup-phone a {
+  color: #0284c7;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.popup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.popup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.popup-btn.gmaps {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.popup-btn.gmaps:hover {
+  background: #2563eb;
+  color: white;
+}
+
+.popup-btn.waze {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.popup-btn.waze:hover {
+  background: #059669;
+  color: white;
+}
+
+/* Mini Card Flutuante de Endereço Selecionado */
+.map-selected-card {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  max-width: 520px;
+  margin: 0 auto;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  padding: 14px 18px;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  animation: slideUpCard 0.25s ease;
+}
+
+@keyframes slideUpCard {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.card-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.card-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.card-tag.quadra {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.card-tag.lote {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.card-name {
+  display: block;
+  font-size: 14px;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-street {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.card-btn-action {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.card-btn-action.gmaps {
+  background: #3b82f6;
+  color: white;
+}
+
+.card-btn-action.gmaps:hover {
+  background: #2563eb;
+}
+
+.card-btn-action.waze {
+  background: #059669;
+  color: white;
+}
+
+.card-btn-action.waze:hover {
+  background: #047857;
+}
+
+.card-btn-action.phone {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.card-btn-action.phone:hover {
+  background: #e2e8f0;
+}
+
+/* Botão de Adicionar Quadra */
+.add-quadra-btn {
+  background: #f8fafc;
+  color: #0284c7;
+  border-color: #bae6fd;
+}
+
+.add-quadra-btn:hover {
+  background: #f0f9ff;
+  border-color: #38bdf8;
+}
+
+.add-quadra-btn.active {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border-color: #0369a1 !important;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.3);
+}
+
+.add-icon {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Banner Flutuante de Instrução */
+.add-quadra-banner {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  border-radius: 9999px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  animation: bannerSlideDown 0.25s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  max-width: 90vw;
+}
+
+@keyframes bannerSlideDown {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.banner-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7);
+  animation: bannerPulseAnim 1.6s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes bannerPulseAnim {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(56, 189, 248, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+  }
+}
+
+.btn-cancel-banner {
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-cancel-banner:hover {
+  background: rgba(239, 68, 68, 0.85);
+  border-color: #ef4444;
+}
+
+/* Modal de Adicionar Quadra */
+.add-quadra-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeInModal 0.2s ease-out;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.add-quadra-modal {
+  width: 100%;
+  max-width: 380px;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px 24px;
+  box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  animation: scaleInModal 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scaleInModal {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.add-quadra-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.add-modal-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+.add-modal-close-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.add-modal-close-btn:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.add-modal-title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.add-modal-subtitle {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.add-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.add-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.add-modal-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.add-modal-input {
+  padding: 10px 14px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.add-modal-input:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+.add-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.btn-modal-cancel {
+  padding: 9px 16px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-modal-cancel:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.btn-modal-submit {
+  padding: 9px 18px;
+  background: #16a34a;
+  border: 1px solid #15803d;
+  color: #ffffff;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(22, 163, 74, 0.25);
+  transition: all 0.15s ease;
+}
+
+.btn-modal-submit:hover {
+  background: #15803d;
+  box-shadow: 0 4px 8px rgba(22, 163, 74, 0.35);
+}
+
+/* Barra Flutuante Inferior de Salvar Quadra Arrastada */
+.quadra-save-bottom-bar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.38);
+  color: #ffffff;
+  max-width: calc(100% - 28px);
+  animation: saveBarSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes saveBarSlideUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.save-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.save-bar-red-badge {
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #f87171;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.save-bar-text {
+  font-size: 12px;
+  color: #e2e8f0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.save-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-discard-quadra-edit {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #f1f5f9;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-discard-quadra-edit:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.85);
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.btn-save-quadra-json {
+  padding: 8px 16px;
+  background: #16a34a;
+  border: 1px solid #22c55e;
+  color: #ffffff;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.35);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-save-quadra-json:hover:not(:disabled) {
+  background: #15803d;
+  transform: translateY(-1px);
+}
+
+.btn-save-quadra-json:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Responsividade do Mapa */
+@media (max-width: 768px) {
+  .map-floating-controls {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    max-width: 100%;
+    gap: 6px;
+  }
+  
+  .map-control-btn span {
+    display: none;
+  }
+
+  .map-quadra-search-input {
+    width: 80px;
+  }
+
+  .quadra-save-bottom-bar {
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+    transform: none;
+    max-width: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px;
+    animation: slideUpCard 0.2s ease;
+  }
+
+  .save-bar-text {
+    white-space: normal;
+    line-height: 1.3;
+  }
+
+  .save-bar-actions {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 8px;
+  }
+
+  .btn-save-quadra-json,
+  .btn-discard-quadra-edit {
+    text-align: center;
+    justify-content: center;
+  }
+
+  .map-selected-card {
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .card-actions {
+    justify-content: stretch;
+  }
+
+  .card-btn-action {
+    flex: 1;
+    text-align: center;
+  }
+}
