@@ -1,9 +1,45 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import itaipuacuQuadras from '../data/itaipuacuQuadras.json';
 import './MapView.css';
+
+// Ícone animado para a localização em tempo real do usuário
+const userLocationIcon = L.divIcon({
+  className: 'user-location-custom-icon',
+  html: `
+    <div class="user-gps-pulse-wrapper">
+      <div class="user-gps-pulse-ring"></div>
+      <div class="user-gps-dot">
+        <div class="user-gps-inner"></div>
+      </div>
+    </div>
+  `,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+  popupAnchor: [0, -14],
+});
+
+// Abre rota no Google Maps ou Waze para o destino indicado, partindo da localização atual do usuário (se ativa)
+function openNavigationUrl(target, app, originLoc = null) {
+  if (!target || isNaN(target.lat) || isNaN(target.lng)) return;
+  const lat = target.lat;
+  const lng = target.lng;
+
+  if (app === 'google') {
+    let url;
+    if (originLoc && !isNaN(originLoc.lat) && !isNaN(originLoc.lng)) {
+      url = `https://www.google.com/maps/dir/?api=1&origin=${originLoc.lat},${originLoc.lng}&destination=${lat},${lng}`;
+    } else {
+      url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } else if (app === 'waze') {
+    const url = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
 
 // Cria ícones SVG para as paradas numeradas da rota
 function createCustomPin({ number, isStart, isEnd, isSelected, hasQuadraLote }) {
@@ -289,6 +325,9 @@ function QuadraLayer({
   onStageQuadraEdit,
   onDragActiveChange,
   onDeleteQuadra,
+  userLocation,
+  onNavigateQuadra,
+  onRequestActivateLocation,
 }) {
   const map = useMap();
   const [clickedQuadraState, setClickedQuadraState] = useState(null);
@@ -761,6 +800,61 @@ function QuadraLayer({
               {activePopupQuadra.lat.toFixed(6)}, {activePopupQuadra.lng.toFixed(6)}
             </p>
 
+            {/* Seção de Navegação: Google Maps ou Waze */}
+            <div className="popup-navigation-section">
+              <div className="popup-nav-header">
+                <span className="popup-nav-title">Navegar até a Quadra:</span>
+                {userLocation ? (
+                  <span className="popup-nav-origin-status active" title="GPS ativo no seu dispositivo">
+                    <span className="gps-live-dot"></span> Do seu local
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-enable-gps-link"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onRequestActivateLocation) onRequestActivateLocation();
+                    }}
+                    title="Ativar localização para usar como ponto de partida"
+                  >
+                    📍 Ativar meu local
+                  </button>
+                )}
+              </div>
+
+              <div className="popup-nav-actions">
+                <button
+                  type="button"
+                  className="popup-nav-btn gmaps"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onNavigateQuadra) onNavigateQuadra(activePopupQuadra, 'google');
+                  }}
+                  title="Navegar com Google Maps"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="3 11 22 2 13 21 11 13 3 11" />
+                  </svg>
+                  <span>Google Maps ↗</span>
+                </button>
+                <button
+                  type="button"
+                  className="popup-nav-btn waze"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onNavigateQuadra) onNavigateQuadra(activePopupQuadra, 'waze');
+                  }}
+                  title="Navegar com Waze"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12.003 2C6.479 2 2 6.479 2 12.003c0 2.215.72 4.264 1.94 5.926L2.6 21.4a.5.5 0 00.6.6l3.471-1.34A9.957 9.957 0 0012.003 22c5.524 0 10.003-4.479 10.003-9.997C22.006 6.479 17.527 2 12.003 2zm-2.8 13.6a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4zm5.6 0a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4zm-2.8-4a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4z"/>
+                  </svg>
+                  <span>Waze ↗</span>
+                </button>
+              </div>
+            </div>
+
             {hasDelivery && (
               <div className="quadra-deliveries-list">
                 <strong>Paradas nesta quadra:</strong>
@@ -832,7 +926,7 @@ function QuadraLayer({
   );
 }
 
-function AddressMarkers({ addresses, selectedId, onSelect }) {
+function AddressMarkers({ addresses, selectedId, onSelect, userLocation, onNavigateAddress }) {
   return (
     <>
       {addresses.map((address, index) => {
@@ -853,11 +947,11 @@ function AddressMarkers({ addresses, selectedId, onSelect }) {
           hasQuadraLote,
         });
 
-        const encodedQuery = encodeURIComponent(
-          `${address.street || ''} ${address.number || ''}, ${address.neighborhood || ''}, ${address.city || 'Maricá'}, RJ`
-        );
-        const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`;
-        const wazeUrl = `https://waze.com/ul?ll=${address.coordinates.lat},${address.coordinates.lng}&navigate=yes`;
+        const targetCoords = {
+          lat: address.coordinates.lat,
+          lng: address.coordinates.lng,
+          label: address.recipient || `Parada #${index + 1}`,
+        };
 
         return (
           <Marker
@@ -913,24 +1007,34 @@ function AddressMarkers({ addresses, selectedId, onSelect }) {
                 </div>
 
                 <div className="popup-actions">
-                  <a
-                    href={googleMapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
                     className="popup-btn gmaps"
+                    onClick={() => {
+                      if (onNavigateAddress) {
+                        onNavigateAddress(targetCoords, 'google');
+                      } else {
+                        openNavigationUrl(targetCoords, 'google', userLocation);
+                      }
+                    }}
                     title="Navegar no Google Maps"
                   >
                     Google Maps ↗
-                  </a>
-                  <a
-                    href={wazeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  </button>
+                  <button
+                    type="button"
                     className="popup-btn waze"
+                    onClick={() => {
+                      if (onNavigateAddress) {
+                        onNavigateAddress(targetCoords, 'waze');
+                      } else {
+                        openNavigationUrl(targetCoords, 'waze', userLocation);
+                      }
+                    }}
                     title="Navegar com Waze"
                   >
                     Waze ↗
-                  </a>
+                  </button>
                 </div>
               </div>
             </Popup>
@@ -984,6 +1088,147 @@ export default function MapView({
   const [pendingEdits, setPendingEdits] = useState(() => new Map());
   const [draggingQuadra, setDraggingQuadra] = useState(null);
   const [isSavingEdits, setIsSavingEdits] = useState(false);
+
+  // Estado da localização do usuário (GPS)
+  const [userLocation, setUserLocation] = useState(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationError, setLocationError] = useState(null);
+  const [locationPromptOpen, setLocationPromptOpen] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState(null);
+  const watchIdRef = useRef(null);
+
+  // Limpa watch de geolocalização ao desmontar
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, []);
+
+  // Ativa a geolocalização do navegador
+  const activateLocation = useCallback((onSuccess, onError) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      const msg = 'Geolocalização não é suportada pelo seu navegador.';
+      setLocationError(msg);
+      if (onError) onError(msg);
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = {
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+          accuracy: pos.coords.accuracy,
+        };
+        setUserLocation(loc);
+        setIsLocating(false);
+
+        // Inicia acompanhamento contínuo da posição
+        if (watchIdRef.current !== null) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+        }
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          (watchPos) => {
+            setUserLocation({
+              lat: Number(watchPos.coords.latitude.toFixed(6)),
+              lng: Number(watchPos.coords.longitude.toFixed(6)),
+              accuracy: watchPos.coords.accuracy,
+            });
+          },
+          (watchErr) => {
+            console.warn('Erro ao atualizar posição contínua:', watchErr);
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+        );
+
+        if (onSuccess) onSuccess(loc);
+      },
+      (err) => {
+        setIsLocating(false);
+        let errorMsg = 'Não foi possível obter sua localização.';
+        if (err.code === 1) {
+          errorMsg = 'Permissão de GPS negada pelo navegador. Habilite o acesso à localização para iniciar rotas do seu ponto atual.';
+        } else if (err.code === 2) {
+          errorMsg = 'Sinal de GPS indisponível no momento.';
+        } else if (err.code === 3) {
+          errorMsg = 'Tempo limite esgotado ao buscar o GPS.';
+        }
+        setLocationError(errorMsg);
+        if (onError) onError(errorMsg);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 10000 }
+    );
+  }, []);
+
+  const deactivateLocation = useCallback(() => {
+    if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setUserLocation(null);
+    setIsLocating(false);
+    setLocationError(null);
+  }, []);
+
+  // Manipulador ao clicar em navegar para uma quadra ou endereço
+  const handleNavigateTarget = useCallback((target, app) => {
+    if (userLocation) {
+      // Localização já ativa: inicia direto partindo da posição do usuário!
+      openNavigationUrl(target, app, userLocation);
+    } else {
+      // Pergunta se deseja ativar localização para começar a rota a partir do seu local
+      setPendingNavigation({ target, app });
+      setLocationError(null);
+      setLocationPromptOpen(true);
+    }
+  }, [userLocation]);
+
+  // Ao clicar no botão de localização da barra do mapa
+  const handleLocationButtonClick = useCallback(() => {
+    if (userLocation) {
+      if (mapInstance) {
+        mapInstance.flyTo([userLocation.lat, userLocation.lng], 17, { duration: 1.0 });
+      }
+    } else {
+      setPendingNavigation(null);
+      setLocationError(null);
+      setLocationPromptOpen(true);
+    }
+  }, [userLocation, mapInstance]);
+
+  // Confirmação de ativação no modal
+  const handleConfirmActivateLocation = useCallback(() => {
+    activateLocation(
+      (loc) => {
+        setLocationPromptOpen(false);
+        if (mapInstance) {
+          mapInstance.flyTo([loc.lat, loc.lng], 16, { duration: 1.0 });
+        }
+        if (pendingNavigation) {
+          openNavigationUrl(pendingNavigation.target, pendingNavigation.app, loc);
+          setPendingNavigation(null);
+        }
+      },
+      () => {
+        // Erro é tratado e exibido dentro do modal
+      }
+    );
+  }, [activateLocation, mapInstance, pendingNavigation]);
+
+  // Pular ativação e navegar diretamente
+  const handleSkipLocationAndNavigate = useCallback(() => {
+    if (pendingNavigation) {
+      openNavigationUrl(pendingNavigation.target, pendingNavigation.app, null);
+      setPendingNavigation(null);
+    }
+    setLocationPromptOpen(false);
+  }, [pendingNavigation]);
 
   const pendingEditsList = useMemo(() => Array.from(pendingEdits.values()), [pendingEdits]);
 
@@ -1156,6 +1401,7 @@ export default function MapView({
     <div className="map-container">
       {/* Barra de Controles Flutuantes do Mapa */}
       <div className="map-floating-controls">
+        {/* Botão de Enquadrar */}
         <button
           type="button"
           className="map-control-btn"
@@ -1171,6 +1417,28 @@ export default function MapView({
             <line x1="19" y1="12" x2="22" y2="12" />
           </svg>
           <span>Enquadrar</span>
+        </button>
+
+        {/* Botão de Localização do Usuário (GPS) */}
+        <button
+          type="button"
+          className={`map-control-btn location-toggle-btn ${userLocation ? 'active' : ''} ${isLocating ? 'locating' : ''}`}
+          onClick={handleLocationButtonClick}
+          title={
+            userLocation
+              ? 'Centralizar no meu local (GPS ativo)'
+              : isLocating
+                ? 'Obtendo localização...'
+                : 'Ativar minha localização para traçar rotas'
+          }
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" fill={userLocation ? '#2563eb' : 'none'} />
+            <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+            <circle cx="12" cy="12" r="8" />
+          </svg>
+          <span>{isLocating ? 'Localizando...' : userLocation ? 'Meu Local' : 'Localização'}</span>
+          {userLocation && <span className="location-active-dot"></span>}
         </button>
 
         {/* Alternador de Quadras de Itaipuaçu */}
@@ -1313,6 +1581,9 @@ export default function MapView({
           onStageQuadraEdit={handleStageQuadraEdit}
           onDragActiveChange={setDraggingQuadra}
           onDeleteQuadra={handleDeleteQuadraWithCleanup}
+          userLocation={userLocation}
+          onNavigateQuadra={handleNavigateTarget}
+          onRequestActivateLocation={handleLocationButtonClick}
         />
 
         {/* Marcadores de Entregas da Rota */}
@@ -1320,7 +1591,61 @@ export default function MapView({
           addresses={addresses}
           selectedId={selectedId}
           onSelect={onSelect}
+          userLocation={userLocation}
+          onNavigateAddress={handleNavigateTarget}
         />
+
+        {/* Marcador e Raio de Precisão da Localização do Usuário */}
+        {userLocation && (
+          <>
+            {userLocation.accuracy && (
+              <Circle
+                center={[userLocation.lat, userLocation.lng]}
+                radius={Math.min(userLocation.accuracy, 300)}
+                pathOptions={{
+                  fillColor: '#2563eb',
+                  fillOpacity: 0.12,
+                  color: '#3b82f6',
+                  weight: 1.5,
+                  dashArray: '4, 4',
+                }}
+              />
+            )}
+            <Marker
+              position={[userLocation.lat, userLocation.lng]}
+              icon={userLocationIcon}
+              zIndexOffset={3500}
+            >
+              <Popup className="custom-popup user-location-popup" maxWidth={260}>
+                <div className="popup-card user-loc-card">
+                  <div className="popup-header">
+                    <span className="popup-badge user-loc-badge">📍 Seu Local</span>
+                    <button
+                      type="button"
+                      className="btn-disable-gps-tag"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deactivateLocation();
+                      }}
+                      title="Desativar acompanhamento de GPS"
+                    >
+                      Desativar
+                    </button>
+                  </div>
+                  <h4 className="popup-title">Você está aqui</h4>
+                  <p className="popup-meta font-mono">
+                    {userLocation.lat.toFixed(6)}, {userLocation.lng.toFixed(6)}
+                  </p>
+                  {userLocation.accuracy && (
+                    <p className="popup-meta user-loc-accuracy">
+                      Precisão do GPS: ~{Math.round(userLocation.accuracy)}m
+                    </p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          </>
+        )}
 
         <MapClickHandler
           onMapBackgroundClick={() => {
@@ -1480,26 +1805,30 @@ export default function MapView({
           <div className="card-actions">
             {selectedAddress.coordinates && (
               <>
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                    `${selectedAddress.street || ''} ${selectedAddress.number || ''}, ${selectedAddress.city || 'Maricá'}, RJ`
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
                   className="card-btn-action gmaps"
-                  title="Abrir no Google Maps"
+                  onClick={() => handleNavigateTarget({
+                    lat: selectedAddress.coordinates.lat,
+                    lng: selectedAddress.coordinates.lng,
+                    label: selectedAddress.recipient || `Parada #${selectedAddress.originalRow}`
+                  }, 'google')}
+                  title="Navegar no Google Maps"
                 >
-                  Google Maps
-                </a>
-                <a
-                  href={`https://waze.com/ul?ll=${selectedAddress.coordinates.lat},${selectedAddress.coordinates.lng}&navigate=yes`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  Google Maps ↗
+                </button>
+                <button
+                  type="button"
                   className="card-btn-action waze"
-                  title="Abrir no Waze"
+                  onClick={() => handleNavigateTarget({
+                    lat: selectedAddress.coordinates.lat,
+                    lng: selectedAddress.coordinates.lng,
+                    label: selectedAddress.recipient || `Parada #${selectedAddress.originalRow}`
+                  }, 'waze')}
+                  title="Navegar no Waze"
                 >
-                  Waze
-                </a>
+                  Waze ↗
+                </button>
               </>
             )}
             {selectedAddress.phone && (
@@ -1511,6 +1840,97 @@ export default function MapView({
                 Ligar
               </a>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Pergunta / Ativação de Localização */}
+      {locationPromptOpen && (
+        <div
+          className="location-modal-overlay"
+          onClick={() => {
+            if (!isLocating) {
+              setLocationPromptOpen(false);
+              setPendingNavigation(null);
+            }
+          }}
+        >
+          <div className="location-modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="location-modal-icon-header">
+              <div className="location-icon-radar">
+                <span className="radar-wave"></span>
+                <span className="radar-center-icon">📍</span>
+              </div>
+            </div>
+
+            <h3 className="location-modal-title">
+              {pendingNavigation ? 'Começar rota do seu local?' : 'Ativar sua localização?'}
+            </h3>
+
+            <p className="location-modal-desc">
+              {pendingNavigation ? (
+                <>
+                  Deseja ativar sua localização para iniciar a rota saindo de onde você está até a{' '}
+                  <strong>
+                    Quadra #{formatQuadraNumber(pendingNavigation.target.rawNumber || pendingNavigation.target.number || pendingNavigation.target.label)}
+                  </strong>{' '}
+                  no {pendingNavigation.app === 'google' ? 'Google Maps' : 'Waze'}?
+                </>
+              ) : (
+                'Ative sua localização para ver sua posição em tempo real no mapa e começar rotas partindo de onde você estiver.'
+              )}
+            </p>
+
+            {locationError && (
+              <div className="location-modal-error">
+                <span className="error-icon">⚠️</span>
+                <span>{locationError}</span>
+              </div>
+            )}
+
+            <div className="location-modal-buttons">
+              <button
+                type="button"
+                className="btn-location-primary"
+                onClick={handleConfirmActivateLocation}
+                disabled={isLocating}
+              >
+                {isLocating ? (
+                  <>
+                    <span className="btn-spinner"></span>
+                    <span>Obtendo sinal do GPS...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📍 Sim, Ativar Localização</span>
+                    {pendingNavigation && <span className="btn-subtext">e iniciar rota</span>}
+                  </>
+                )}
+              </button>
+
+              {pendingNavigation && (
+                <button
+                  type="button"
+                  className="btn-location-secondary"
+                  onClick={handleSkipLocationAndNavigate}
+                  disabled={isLocating}
+                >
+                  🚗 Navegar sem ativar local
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="btn-location-cancel"
+                onClick={() => {
+                  setLocationPromptOpen(false);
+                  setPendingNavigation(null);
+                }}
+                disabled={isLocating}
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}
