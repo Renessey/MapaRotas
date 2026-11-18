@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Circle } 
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import itaipuacuQuadras from '../data/itaipuacuQuadras.json';
+import { groupDeliveryAddressesForMap } from '../utils/addressGrouping';
 import './MapView.css';
 
 // Ícone animado para a localização em tempo real do usuário
@@ -41,12 +42,27 @@ function openNavigationUrl(target, app, originLoc = null) {
   }
 }
 
+// Cache de ícones dos pinos numerados das entregas
+const deliveryPinCache = new Map();
+
 // Cria ícones SVG para as paradas numeradas da rota
-function createCustomPin({ number, isStart, isEnd, isSelected, hasQuadraLote }) {
+function createCustomPin({
+  number,
+  isStart,
+  isEnd,
+  isSelected,
+  hasQuadraLote,
+  isManuallyAdjusted = false,
+  packageCount = 1,
+  isDelivered = false,
+  deliveredCount = 0,
+}) {
   let bgClass = 'pin-normal';
   const label = String(number);
 
-  if (isStart) {
+  if (isDelivered) {
+    bgClass = 'pin-delivered';
+  } else if (isStart) {
     bgClass = 'pin-start';
   } else if (isEnd) {
     bgClass = 'pin-end';
@@ -54,25 +70,52 @@ function createCustomPin({ number, isStart, isEnd, isSelected, hasQuadraLote }) 
     bgClass = 'pin-quadra';
   }
 
-  const selectedClass = isSelected ? 'pin-selected' : '';
+  const pkgKey = packageCount > 1 ? `p${packageCount}` : '';
+  const delKey = isDelivered ? 'd' : deliveredCount > 0 ? `d${deliveredCount}` : '';
+  const key = `${label}-${bgClass}-${isSelected ? 's' : ''}-${isManuallyAdjusted ? 'a' : ''}-${pkgKey}-${delKey}`;
+  let icon = deliveryPinCache.get(key);
+  if (!icon) {
+    if (deliveryPinCache.size > 3000) {
+      deliveryPinCache.clear();
+    }
+    const selectedClass = isSelected ? 'pin-selected' : '';
+    const adjustedClass = isManuallyAdjusted ? 'pin-adjusted' : '';
+    const multiPkgClass = packageCount > 1 ? 'pin-multi-pkg' : '';
+    const deliveredClass = isDelivered ? 'pin-delivered-wrapper' : '';
 
-  const html = `
-    <div class="custom-marker-wrapper ${selectedClass}">
-      <div class="custom-marker-pin ${bgClass}">
-        <span class="custom-marker-text">${label}</span>
+    let topBadgeHtml = '';
+    if (packageCount > 1) {
+      if (isDelivered) {
+        topBadgeHtml = `<span class="pin-package-count delivered" title="Entregue (${packageCount} pacotes)">✓ ${packageCount} pct</span>`;
+      } else if (deliveredCount > 0) {
+        topBadgeHtml = `<span class="pin-package-count partial" title="${deliveredCount} de ${packageCount} entregues">${deliveredCount}/${packageCount} ent</span>`;
+      } else {
+        topBadgeHtml = `<span class="pin-package-count" title="${packageCount} pacotes para este endereço">${packageCount} pct</span>`;
+      }
+    }
+
+    const html = `
+      <div class="custom-marker-wrapper ${selectedClass} ${adjustedClass} ${multiPkgClass} ${deliveredClass}">
+        ${topBadgeHtml}
+        <div class="custom-marker-pin ${bgClass}">
+          <span class="custom-marker-text">${label}</span>
+        </div>
+        ${isManuallyAdjusted ? '<span class="pin-adjusted-dot" title="Posição ajustada manualmente"></span>' : ''}
+        <div class="custom-marker-shadow"></div>
+        ${isSelected ? '<div class="custom-marker-pulse"></div>' : ''}
       </div>
-      <div class="custom-marker-shadow"></div>
-      ${isSelected ? '<div class="custom-marker-pulse"></div>' : ''}
-    </div>
-  `;
+    `;
 
-  return L.divIcon({
-    className: 'custom-div-icon',
-    html: html,
-    iconSize: isSelected ? [36, 46] : [30, 40],
-    iconAnchor: isSelected ? [18, 46] : [15, 40],
-    popupAnchor: [0, -42],
-  });
+    icon = L.divIcon({
+      className: 'custom-div-icon',
+      html: html,
+      iconSize: isSelected ? [36, 46] : [30, 40],
+      iconAnchor: isSelected ? [18, 46] : [15, 40],
+      popupAnchor: [0, -42],
+    });
+    deliveryPinCache.set(key, icon);
+  }
+  return icon;
 }
 
 // Formata números de quadras: 01 a 09 mantêm o zero na frente (ex: 01, 09), 10 em diante não têm zero na frente (ex: 27, 40, 51)
@@ -122,9 +165,10 @@ function getCachedQuadraIcon(quadra, hasDelivery, isHighlighted, isDraggable, is
 }
 
 // Componente para sincronizar visão, animação e redimensionamento do Leaflet
-function MapController({ center, zoom, addresses, onMapReady }) {
+function MapController({ center, zoom, addresses, routeVersion = 0, onMapReady }) {
   const map = useMap();
   const prevCenterRef = useRef(null);
+  const lastFittedVersionRef = useRef(0);
 
   useEffect(() => {
     if (onMapReady) {
@@ -152,10 +196,10 @@ function MapController({ center, zoom, addresses, onMapReady }) {
   // Se um centro e zoom específicos foram solicitados
   useEffect(() => {
     if (center && center.length === 2 && !isNaN(center[0]) && !isNaN(center[1])) {
-      const isDifferent = !prevCenterRef.current || 
-        prevCenterRef.current[0] !== center[0] || 
+      const isDifferent = !prevCenterRef.current ||
+        prevCenterRef.current[0] !== center[0] ||
         prevCenterRef.current[1] !== center[1];
-        
+
       if (isDifferent) {
         prevCenterRef.current = center;
         map.flyTo(center, zoom || 17, {
@@ -166,20 +210,33 @@ function MapController({ center, zoom, addresses, onMapReady }) {
     }
   }, [center, zoom, map]);
 
-  // FitBounds inicial quando os endereços são carregados
+  // FitBounds inicial apenas quando uma nova rota é carregada (evita reposicionar a câmera ao arrastar pinos)
   useEffect(() => {
-    if (!center && addresses && addresses.length > 0) {
-      const validCoords = addresses
-        .filter(a => a.coordinates && !isNaN(a.coordinates.lat) && !isNaN(a.coordinates.lng))
-        .map(a => [a.coordinates.lat, a.coordinates.lng]);
+    if (!addresses || addresses.length === 0) {
+      lastFittedVersionRef.current = 0;
+      return;
+    }
+    if (center) {
+      lastFittedVersionRef.current = routeVersion;
+      return;
+    }
+    if (lastFittedVersionRef.current === routeVersion) {
+      return;
+    }
 
+    const validCoords = addresses
+      .filter(a => a.coordinates && !isNaN(a.coordinates.lat) && !isNaN(a.coordinates.lng))
+      .map(a => [a.coordinates.lat, a.coordinates.lng]);
+
+    if (validCoords.length > 0) {
+      lastFittedVersionRef.current = routeVersion;
       if (validCoords.length > 1) {
         map.fitBounds(validCoords, { padding: [60, 60], maxZoom: 16 });
-      } else if (validCoords.length === 1) {
+      } else {
         map.setView(validCoords[0], 16);
       }
     }
-  }, [addresses, center, map]);
+  }, [addresses, center, routeVersion, map]);
 
   return null;
 }
@@ -209,9 +266,9 @@ function selectVisibleQuadras(map, cleanQuadras, deliveryQuadrasMap, highlighted
       deliveryQuadrasMap.has(q._label);
     const isHighlighted = Boolean(
       highlightedQuadra &&
-        (highlightedQuadra === q.number ||
-          highlightedQuadra === q.rawNumber ||
-          highlightedQuadra === q._label)
+      (highlightedQuadra === q.number ||
+        highlightedQuadra === q.rawNumber ||
+        highlightedQuadra === q._label)
     );
     const isSelected = Boolean(selectedKey && selectedKey === q._key);
 
@@ -309,11 +366,75 @@ function selectVisibleQuadras(map, cleanQuadras, deliveryQuadrasMap, highlighted
   return { items, paddedBounds, zoom };
 }
 
+// Normaliza entrada do filtro rápido de quadra ("qd 31", "Quadra 05", "31")
+function normalizeQuadraSearchTerm(rawInput) {
+  if (!rawInput) return '';
+  const cleaned = String(rawInput)
+    .trim()
+    .replace(/^(?:quadra|quad\.?|qd\.?|q\.?)\s*(?:n[º°.]?\s*)?[:\-_/\s]*/i, '');
+  if (!cleaned) return '';
+  return formatQuadraNumber(cleaned);
+}
+
+// Deduplica quadras mantendo instâncias em loteamentos distintos (mesmo número em locais >160m)
+function buildCleanQuadras(quadras) {
+  if (!quadras || quadras.length === 0) return [];
+  const result = [];
+  const byNorm = new Map();
+
+  for (let i = 0; i < quadras.length; i++) {
+    const q = quadras[i];
+    if (!q || isNaN(q.lat) || isNaN(q.lng)) continue;
+    const formatted = formatQuadraNumber(q.rawNumber || q.number);
+    const qNorm = formatted.replace(/^0+/, '').toUpperCase() || '0';
+    const key = q.id || `${formatted}-${q.lat}-${q.lng}`;
+
+    const existingList = byNorm.get(qNorm);
+    let isDupe = false;
+    if (existingList) {
+      const cosLat = Math.cos((q.lat * Math.PI) / 180);
+      const minRadiusSq = q.isCustomAdded ? 15 * 15 : 160 * 160;
+      for (let j = 0; j < existingList.length; j++) {
+        const ex = existingList[j];
+        if (ex._key === key) {
+          isDupe = true;
+          break;
+        }
+        const dlat = (q.lat - ex.lat) * 111320;
+        const dlng = (q.lng - ex.lng) * 111320 * cosLat;
+        if (dlat * dlat + dlng * dlng < minRadiusSq) {
+          isDupe = true;
+          break;
+        }
+      }
+    }
+
+    if (!isDupe) {
+      const item = {
+        ...q,
+        _key: key,
+        _label: formatted,
+        _numInt: parseInt(formatted, 10),
+      };
+      result.push(item);
+      if (!existingList) {
+        byNorm.set(qNorm, [item]);
+      } else {
+        existingList.push(item);
+      }
+    }
+  }
+
+  return result;
+}
+
 // Renderiza as Quadras de Itaipuaçu via camada Leaflet nativa com diff incremental (60 FPS + 100% da tela visível)
 function QuadraLayer({
   quadras,
+  cleanQuadrasBase = null,
   pendingEdits,
   deliveryQuadrasMap,
+  pinInfoByRow = null,
   highlightedQuadra,
   searchSeq,
   onSelectQuadra,
@@ -331,7 +452,6 @@ function QuadraLayer({
 }) {
   const map = useMap();
   const [clickedQuadraState, setClickedQuadraState] = useState(null);
-  const [dismissedState, setDismissedState] = useState(null);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -357,57 +477,10 @@ function QuadraLayer({
   });
 
   // Deduplicação O(N) feita apenas quando a lista base de quadras muda
-  const baseCleanQuadras = useMemo(() => {
-    if (!quadras || quadras.length === 0) return [];
-    const result = [];
-    const byNorm = new Map();
-
-    for (let i = 0; i < quadras.length; i++) {
-      const q = quadras[i];
-      if (!q || isNaN(q.lat) || isNaN(q.lng)) continue;
-      const formatted = formatQuadraNumber(q.rawNumber || q.number);
-      const qNorm = formatted.replace(/^0+/, '').toUpperCase() || '0';
-      const key = q.id || `${formatted}-${q.lat}-${q.lng}`;
-
-      const existingList = byNorm.get(qNorm);
-      let isDupe = false;
-      if (existingList) {
-        const cosLat = Math.cos((q.lat * Math.PI) / 180);
-        // Se foi adicionada manualmente na sessão ou no botão Add Número, só considera duplicada se estiver exatamente em cima (< 15m)
-        const minRadiusSq = q.isCustomAdded ? 15 * 15 : 160 * 160;
-        for (let j = 0; j < existingList.length; j++) {
-          const ex = existingList[j];
-          if (ex._key === key) {
-            isDupe = true;
-            break;
-          }
-          const dlat = (q.lat - ex.lat) * 111320;
-          const dlng = (q.lng - ex.lng) * 111320 * cosLat;
-          if (dlat * dlat + dlng * dlng < minRadiusSq) {
-            isDupe = true;
-            break;
-          }
-        }
-      }
-
-      if (!isDupe) {
-        const item = {
-          ...q,
-          _key: key,
-          _label: formatted,
-          _numInt: parseInt(formatted, 10),
-        };
-        result.push(item);
-        if (!existingList) {
-          byNorm.set(qNorm, [item]);
-        } else {
-          existingList.push(item);
-        }
-      }
-    }
-
-    return result;
-  }, [quadras]);
+  const baseCleanQuadras = useMemo(
+    () => (cleanQuadrasBase ? cleanQuadrasBase : buildCleanQuadras(quadras)),
+    [cleanQuadrasBase, quadras]
+  );
 
   // Sobrepõe coordenadas temporárias arrastadas enquanto aguardam clique em "Salvar no JSON"
   const cleanQuadras = useMemo(() => {
@@ -426,27 +499,13 @@ function QuadraLayer({
     });
   }, [baseCleanQuadras, pendingEdits]);
 
-  // Popup ativo único (sob demanda, evitando centenas de popups em memória)
+  // Popup abre APENAS quando o usuário clica diretamente na quadra (nunca auto-abre outra quadra fora da tela)
   const activePopupQuadra = useMemo(() => {
     if (clickedQuadraState && clickedQuadraState.seq === searchSeq) {
       return cleanQuadras.find((x) => x._key === clickedQuadraState.key) || null;
     }
-    const isDismissed =
-      dismissedState &&
-      dismissedState.highlight === highlightedQuadra &&
-      dismissedState.seq === searchSeq;
-    if (highlightedQuadra && !isDismissed && cleanQuadras.length > 0) {
-      return (
-        cleanQuadras.find(
-          (x) =>
-            x._label === highlightedQuadra ||
-            x.number === highlightedQuadra ||
-            x.rawNumber === highlightedQuadra
-        ) || null
-      );
-    }
     return null;
-  }, [clickedQuadraState, dismissedState, highlightedQuadra, searchSeq, cleanQuadras]);
+  }, [clickedQuadraState, searchSeq, cleanQuadras]);
 
   const selectedKey = activePopupQuadra ? activePopupQuadra._key : null;
 
@@ -569,7 +628,6 @@ function QuadraLayer({
           // No modo arrastar ativo, não abre modal de informação para manter o mapa limpo
           if (!latestState.adjustMode) {
             setConfirmDeleteKey(null);
-            setDismissedState(null);
             setClickedQuadraState({ key, seq: latestState.searchSeq });
             if (latestState.onSelectQuadra) latestState.onSelectQuadra(latestQ);
           }
@@ -583,10 +641,6 @@ function QuadraLayer({
           setIsDragging(true);
           // Fecha o popup imediatamente ao iniciar o arrasto para desobstruir a visão
           setClickedQuadraState(null);
-          setDismissedState({
-            highlight: stateRef.current.highlightedQuadra,
-            seq: stateRef.current.searchSeq,
-          });
           const entry = markersMapRef.current.get(key);
           const latestQ = entry ? entry.quadra : q;
           if (stateRef.current.onDragActiveChange) {
@@ -744,7 +798,6 @@ function QuadraLayer({
       if (isAddingQuadra) return;
       setConfirmDeleteKey(null);
       setClickedQuadraState(null);
-      setDismissedState({ highlight: highlightedQuadra, seq: searchSeq });
       if (onDeselectQuadra) onDeselectQuadra();
     },
   });
@@ -753,8 +806,8 @@ function QuadraLayer({
 
   const deliveriesHere = activePopupQuadra
     ? deliveryQuadrasMap.get(activePopupQuadra._numInt) ||
-      deliveryQuadrasMap.get(activePopupQuadra.rawNumber) ||
-      []
+    deliveryQuadrasMap.get(activePopupQuadra.rawNumber) ||
+    []
     : [];
   const hasDelivery = deliveriesHere.length > 0;
   const popupLabel = activePopupQuadra
@@ -764,18 +817,18 @@ function QuadraLayer({
 
   return (
     <>
-      {/* Popup único sob demanda: exibido apenas quando NÃO estiver no modo arrastar e nem arrastando */}
+      {/* Popup único sob demanda: exibido apenas quando o usuário clica na quadra e sem autoPan automático */}
       {activePopupQuadra && !adjustMode && !isDragging && (
         <Popup
           position={[activePopupQuadra.lat, activePopupQuadra.lng]}
+          autoPan={false}
           onClose={() => {
             setConfirmDeleteKey(null);
             setClickedQuadraState(null);
-            setDismissedState({ highlight: highlightedQuadra, seq: searchSeq });
             if (onDeselectQuadra) onDeselectQuadra();
           }}
           className="custom-popup"
-          maxWidth={290}
+          maxWidth={320}
         >
           <div className="popup-card quadra-popup-card">
             <div className="popup-header">
@@ -848,7 +901,7 @@ function QuadraLayer({
                   title="Navegar com Waze"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12.003 2C6.479 2 2 6.479 2 12.003c0 2.215.72 4.264 1.94 5.926L2.6 21.4a.5.5 0 00.6.6l3.471-1.34A9.957 9.957 0 0012.003 22c5.524 0 10.003-4.479 10.003-9.997C22.006 6.479 17.527 2 12.003 2zm-2.8 13.6a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4zm5.6 0a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4zm-2.8-4a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4z"/>
+                    <path d="M12.003 2C6.479 2 2 6.479 2 12.003c0 2.215.72 4.264 1.94 5.926L2.6 21.4a.5.5 0 00.6.6l3.471-1.34A9.957 9.957 0 0012.003 22c5.524 0 10.003-4.479 10.003-9.997C22.006 6.479 17.527 2 12.003 2zm-2.8 13.6a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4zm5.6 0a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4zm-2.8-4a1.2 1.2 0 110-2.4 1.2 1.2 0 010 2.4z" />
                   </svg>
                   <span>Waze ↗</span>
                 </button>
@@ -858,13 +911,27 @@ function QuadraLayer({
             {hasDelivery && (
               <div className="quadra-deliveries-list">
                 <strong>Paradas nesta quadra:</strong>
-                {deliveriesHere.map((d, i) => (
-                  <div key={i} className="quadra-delivery-row">
-                    <span className="deliv-idx">#{d.originalRow}</span>
-                    <span className="deliv-name">{d.recipient}</span>
-                    {d.lote && <span className="deliv-lote">Lt {d.lote}</span>}
-                  </div>
-                ))}
+                {deliveriesHere.map((d, i) => {
+                  const pinInfo = pinInfoByRow?.get(d.originalRow);
+                  return (
+                    <div
+                      key={i}
+                      className={`quadra-delivery-row ${d.delivered ? 'is-delivered' : ''}`}
+                    >
+                      <span className="deliv-idx">#{d.originalRow}</span>
+                      {pinInfo && (
+                        <span
+                          className={`deliv-pin-badge ${pinInfo.isDelivered ? 'is-delivered' : ''}`}
+                          title={`No mapa: Pino #${pinInfo.stopNumber}`}
+                        >
+                          pino {pinInfo.stopNumber}
+                        </span>
+                      )}
+                      <span className="deliv-name">{d.recipient}</span>
+                      {d.lote && <span className="deliv-lote">Lt {d.lote}</span>}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -895,7 +962,6 @@ function QuadraLayer({
                           const target = activePopupQuadra;
                           setConfirmDeleteKey(null);
                           setClickedQuadraState(null);
-                          setDismissedState({ highlight: highlightedQuadra, seq: searchSeq });
                           if (onDeselectQuadra) onDeselectQuadra();
                           onDeleteQuadra(target);
                         }}
@@ -926,52 +992,134 @@ function QuadraLayer({
   );
 }
 
-function AddressMarkers({ addresses, selectedId, onSelect, userLocation, onNavigateAddress }) {
+function AddressMarkers({
+  groupedStops = [],
+  selectedId,
+  onSelect,
+  userLocation,
+  onNavigateAddress,
+  onUpdateAddress,
+  onConfirmDelivery,
+  onEditAddress,
+  onStartReposition,
+  isPickingMapSpot = false,
+  onPickMapSpot,
+}) {
   return (
     <>
-      {addresses.map((address, index) => {
-        if (!address.coordinates || isNaN(address.coordinates.lat) || isNaN(address.coordinates.lng)) {
+      {groupedStops.map((group, index) => {
+        if (!group.coordinates || isNaN(group.coordinates.lat) || isNaN(group.coordinates.lng)) {
           return null;
         }
 
-        const isSelected = selectedId === address.originalRow;
+        const address = group.primary;
+        const stopNumber = group.stopNumber || index + 1;
+        const packageCount = group.packageCount || group.items.length;
+        const rowIds = group.rowIds || [address.originalRow];
+        const pendingRowIds = group.items.filter((item) => !item.delivered).map((item) => item.originalRow);
+        const deliveredCount = group.deliveredCount || 0;
+        const isDelivered = Boolean(group.isDelivered);
+        const isPartiallyDelivered = Boolean(group.isPartiallyDelivered);
+        const isSelected = group.items.some((item) => item.originalRow === selectedId);
+        const selectedItem = group.items.find((item) => item.originalRow === selectedId) || address;
         const isFirst = index === 0;
-        const isLast = index === addresses.length - 1 && addresses.length > 1;
-        const hasQuadraLote = Boolean(address.quadra || address.lote);
+        const isLast = index === groupedStops.length - 1 && groupedStops.length > 1;
+        const hasQuadraLote = group.items.some((item) => Boolean(item.quadra || item.lote));
+        const isManuallyAdjusted = Boolean(group.isManuallyAdjusted);
+        const hasAnyOriginal = group.items.some((item) => item.isManuallyAdjusted && item.originalCoordinates);
 
         const icon = createCustomPin({
-          number: index + 1,
+          number: stopNumber,
           isStart: isFirst,
           isEnd: isLast,
           isSelected,
           hasQuadraLote,
+          isManuallyAdjusted,
+          packageCount,
+          isDelivered,
+          deliveredCount,
         });
 
         const targetCoords = {
-          lat: address.coordinates.lat,
-          lng: address.coordinates.lng,
-          label: address.recipient || `Parada #${index + 1}`,
+          lat: group.coordinates.lat,
+          lng: group.coordinates.lng,
+          label: address.recipient || `Parada #${stopNumber}`,
         };
 
         return (
           <Marker
-            key={`addr-${address.originalRow || index}`}
-            position={[address.coordinates.lat, address.coordinates.lng]}
+            key={group.groupId}
+            position={[group.coordinates.lat, group.coordinates.lng]}
             icon={icon}
-            zIndexOffset={isSelected ? 1000 : index + 50}
+            draggable={!isPickingMapSpot}
+            autoPan={true}
+            riseOnHover={true}
+            riseOffset={2000}
+            zIndexOffset={isSelected ? 1000 : isDelivered ? index + 10 : index + 50}
             eventHandlers={{
-              click: () => onSelect(address.originalRow),
+              click: (e) => {
+                if (isPickingMapSpot && onPickMapSpot) {
+                  onPickMapSpot(e.latlng || e.target.getLatLng());
+                  return;
+                }
+                onSelect(selectedItem.originalRow, { pan: false });
+              },
+              dragstart: (e) => {
+                e.target.closePopup();
+                e.target.setZIndexOffset(3500);
+                const el = e.target.getElement();
+                if (el) el.classList.add('is-dragging-pin');
+              },
+              dragend: (e) => {
+                const el = e.target.getElement();
+                if (el) el.classList.remove('is-dragging-pin');
+                e.target.setZIndexOffset(isSelected ? 1000 : isDelivered ? index + 10 : index + 50);
+                const newLatLng = e.target.getLatLng();
+                const newLat = Number(newLatLng.lat.toFixed(6));
+                const newLng = Number(newLatLng.lng.toFixed(6));
+                if (onUpdateAddress) {
+                  onUpdateAddress(rowIds, {
+                    coordinates: { lat: newLat, lng: newLng },
+                    isManuallyAdjusted: true,
+                  });
+                }
+              },
             }}
           >
-            <Popup className="custom-popup" maxWidth={320}>
+            <Popup className="custom-popup" maxWidth={340} autoPan={false}>
               <div className="popup-card">
                 <div className="popup-header">
-                  <span className="popup-badge">Parada #{index + 1}</span>
-                  {address.orderId && <span className="popup-order">{address.orderId}</span>}
+                  <div className="popup-header-badges">
+                    <span className="popup-badge">Parada #{stopNumber}</span>
+                    {isDelivered ? (
+                      <span className="popup-badge delivered-badge">✅ Entregue</span>
+                    ) : isPartiallyDelivered ? (
+                      <span className="popup-badge partial-badge">⏳ {deliveredCount}/{packageCount} entregues</span>
+                    ) : null}
+                    {packageCount > 1 && (
+                      <span className="popup-badge pkg-count-badge">📦 {packageCount} pacotes</span>
+                    )}
+                    {isManuallyAdjusted ? (
+                      <span className="popup-badge adjusted-badge">📌 Ajustado</span>
+                    ) : (
+                      <span className="popup-badge drag-badge">✋ Arrastável</span>
+                    )}
+                  </div>
+                  {packageCount === 1 && address.orderId && (
+                    <span className="popup-order">{address.orderId}</span>
+                  )}
                 </div>
-                
-                <h4 className="popup-title">{address.recipient || `Endereço #${address.originalRow}`}</h4>
-                
+
+                <h4 className="popup-title">
+                  {packageCount > 1
+                    ? `${packageCount} pacotes neste endereço`
+                    : address.recipient || `Endereço #${address.originalRow}`}
+                </h4>
+
+                <div className="popup-drag-hint delivery-drag-hint">
+                  ✋ <strong>Posição editável:</strong> Arraste este pino para qualquer local do mapa ou clique em <strong>Editar</strong>.
+                </div>
+
                 <div className="popup-body">
                   <p className="popup-address">
                     <strong>{address.street}</strong>
@@ -985,7 +1133,7 @@ function AddressMarkers({ addresses, selectedId, onSelect, userLocation, onNavig
                     </div>
                   )}
 
-                  {address.complement && (
+                  {packageCount === 1 && address.complement && (
                     <p className="popup-meta">Complemento: {address.complement}</p>
                   )}
 
@@ -997,14 +1145,108 @@ function AddressMarkers({ addresses, selectedId, onSelect, userLocation, onNavig
                     <p className="popup-meta font-mono">CEP: {address.zipCode}</p>
                   )}
 
-                  {address.phone && (
+                  <p className="popup-meta font-mono">
+                    {group.coordinates.lat.toFixed(6)}, {group.coordinates.lng.toFixed(6)}
+                  </p>
+
+                  {packageCount === 1 && address.phone && (
                     <p className="popup-phone">
                       <a href={`tel:${address.phone.replace(/\D/g, '')}`}>
                         📞 {address.phone}
                       </a>
                     </p>
                   )}
+
+                  {packageCount > 1 && (
+                    <div className="popup-packages-list" onClick={(e) => e.stopPropagation()}>
+                      {group.items.map((item) => (
+                        <div
+                          key={`pkg-${item.originalRow}`}
+                          className={`popup-package-item ${item.delivered ? 'is-item-delivered' : ''}`}
+                        >
+                          <div className="popup-pkg-top">
+                            <span className="popup-pkg-row">#{item.originalRow}</span>
+                            <strong className="popup-pkg-name">
+                              {item.recipient || `Pacote #${item.originalRow}`}
+                            </strong>
+                            {item.orderId && <span className="popup-pkg-order">{item.orderId}</span>}
+                            {onConfirmDelivery && (
+                              <button
+                                type="button"
+                                className={`popup-pkg-confirm-btn ${item.delivered ? 'is-done' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onConfirmDelivery(item.originalRow, !item.delivered);
+                                }}
+                                title={item.delivered ? 'Desfazer entrega deste pacote' : 'Confirmar entrega deste pacote'}
+                              >
+                                {item.delivered ? '↩️' : '✓'}
+                              </button>
+                            )}
+                            {onEditAddress && (
+                              <button
+                                type="button"
+                                className="popup-pkg-edit-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEditAddress(item, stopNumber, group);
+                                }}
+                                title="Editar este pacote"
+                              >
+                                ✏️
+                              </button>
+                            )}
+                          </div>
+                          {(item.delivered || item.complement || item.phone) && (
+                            <div className="popup-pkg-sub">
+                              {item.delivered && <span className="popup-pkg-done-tag">✅ Concluído</span>}
+                              {item.complement && <span>{item.complement}</span>}
+                              {item.phone && (
+                                <a href={`tel:${item.phone.replace(/\D/g, '')}`}>📞 {item.phone}</a>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {onConfirmDelivery && (
+                  <div className="popup-delivery-confirm-wrap" onClick={(e) => e.stopPropagation()}>
+                    {isDelivered ? (
+                      <button
+                        type="button"
+                        className="popup-confirm-delivery-btn is-done"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onConfirmDelivery(rowIds, false);
+                        }}
+                        title="Desfazer entrega e devolver para lista de Entregas"
+                      >
+                        ↩️ Entregue · Desfazer Confirmação
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="popup-confirm-delivery-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.currentTarget.closest('.leaflet-popup')?.querySelector('.leaflet-popup-close-button')?.click();
+                          onConfirmDelivery(pendingRowIds.length > 0 ? pendingRowIds : rowIds, true);
+                        }}
+                        title="Confirmar entrega (pino ficará cinza e pacotes irão para Histórico)"
+                      >
+                        ✓ Confirmar Entrega
+                        {pendingRowIds.length > 1
+                          ? ` (${pendingRowIds.length} pacotes)`
+                          : isPartiallyDelivered
+                            ? ` (restante #${pendingRowIds[0]})`
+                            : ''}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="popup-actions">
                   <button
@@ -1036,6 +1278,49 @@ function AddressMarkers({ addresses, selectedId, onSelect, userLocation, onNavig
                     Waze ↗
                   </button>
                 </div>
+
+                <div className="popup-edit-actions" onClick={(e) => e.stopPropagation()}>
+                  {onEditAddress && (
+                    <button
+                      type="button"
+                      className="popup-edit-btn primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditAddress(selectedItem, stopNumber, group);
+                      }}
+                      title="Editar endereço, quadra/lote e posição desta parada"
+                    >
+                      ✏️ Editar {packageCount > 1 ? `#${selectedItem.originalRow}` : 'Parada'}
+                    </button>
+                  )}
+                  {onStartReposition && (
+                    <button
+                      type="button"
+                      className="popup-edit-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.currentTarget.closest('.leaflet-popup')?.querySelector('.leaflet-popup-close-button')?.click();
+                        onStartReposition(address, stopNumber, rowIds);
+                      }}
+                      title="Clicar em outro ponto do mapa para mover este pino"
+                    >
+                      🎯 Mover no Mapa
+                    </button>
+                  )}
+                  {hasAnyOriginal && onUpdateAddress && (
+                    <button
+                      type="button"
+                      className="popup-edit-btn reset"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUpdateAddress(rowIds, { restoreOriginal: true });
+                      }}
+                      title="Voltar este pino para a coordenada original importada"
+                    >
+                      ↩️ Posição Original
+                    </button>
+                  )}
+                </div>
               </div>
             </Popup>
           </Marker>
@@ -1045,7 +1330,278 @@ function AddressMarkers({ addresses, selectedId, onSelect, userLocation, onNavig
   );
 }
 
-function MapClickHandler({ 
+// Modal compacto para editar dados e posição de um pino de entrega
+function EditAddressModal({
+  stop,
+  stopNumber,
+  stopGroup = null,
+  quadras,
+  onSave,
+  onRestoreOriginal,
+  onConfirmDelivery,
+  onClose,
+}) {
+  const [recipient, setRecipient] = useState(stop.recipient || '');
+  const [street, setStreet] = useState(stop.street || '');
+  const [number, setNumber] = useState(stop.number || '');
+  const [quadra, setQuadra] = useState(stop.quadra || '');
+  const [lote, setLote] = useState(stop.lote || '');
+  const [complement, setComplement] = useState(stop.complement || '');
+  const [phone, setPhone] = useState(stop.phone || '');
+  const [latStr, setLatStr] = useState(
+    stop.coordinates && !isNaN(stop.coordinates.lat) ? stop.coordinates.lat.toFixed(6) : ''
+  );
+  const [lngStr, setLngStr] = useState(
+    stop.coordinates && !isNaN(stop.coordinates.lng) ? stop.coordinates.lng.toFixed(6) : ''
+  );
+
+  const handleSnapToQuadraCoords = () => {
+    if (!quadra.trim() || !quadras || quadras.length === 0) return;
+    const formatted = formatQuadraNumber(quadra);
+    const match = quadras.find(
+      q =>
+        formatQuadraNumber(q.rawNumber || q.number).toUpperCase() === formatted.toUpperCase() &&
+        !isNaN(q.lat) &&
+        !isNaN(q.lng)
+    );
+    if (match) {
+      setLatStr(Number(match.lat).toFixed(6));
+      setLngStr(Number(match.lng).toFixed(6));
+    } else {
+      alert(`Quadra ${formatted} não localizada no mapa de Itaipuaçu.`);
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const parsedLat = parseFloat(String(latStr).replace(',', '.'));
+    const parsedLng = parseFloat(String(lngStr).replace(',', '.'));
+    const hasValidCoords = !isNaN(parsedLat) && !isNaN(parsedLng);
+
+    const coordsChanged =
+      hasValidCoords &&
+      (!stop.coordinates ||
+        Math.abs(parsedLat - stop.coordinates.lat) > 0.0000005 ||
+        Math.abs(parsedLng - stop.coordinates.lng) > 0.0000005);
+
+    onSave(stop.originalRow, {
+      recipient: recipient.trim(),
+      street: street.trim(),
+      number: number.trim(),
+      quadra: quadra.trim(),
+      lote: lote.trim(),
+      complement: complement.trim(),
+      phone: phone.trim(),
+      ...(coordsChanged ? { coordinates: { lat: Number(parsedLat.toFixed(6)), lng: Number(parsedLng.toFixed(6)) }, isManuallyAdjusted: true } : {}),
+    });
+    onClose();
+  };
+
+  return (
+    <div className="add-quadra-modal-overlay" onClick={onClose}>
+      <div className="add-quadra-modal edit-stop-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="add-quadra-modal-header">
+          <span className="add-modal-tag edit-stop-tag">✏️ Editar Parada #{stopNumber}</span>
+          <button type="button" className="add-modal-close-btn" onClick={onClose} title="Fechar">
+            ✕
+          </button>
+        </div>
+
+        <h4 className="add-modal-title">Editar Entrega e Posição do Pino</h4>
+        <p className="edit-stop-hint">
+          Você também pode fechar e arrastar o pino diretamente no mapa.
+        </p>
+
+        {onConfirmDelivery && (
+          <div className="edit-modal-delivery-box">
+            {(() => {
+              const targetRows = stopGroup?.rowIds?.length ? stopGroup.rowIds : [stop.originalRow];
+              const isAllDelivered = stopGroup ? Boolean(stopGroup.isDelivered) : Boolean(stop.delivered);
+              const pendingRows = stopGroup
+                ? stopGroup.items.filter((i) => !i.delivered).map((i) => i.originalRow)
+                : (stop.delivered ? [] : [stop.originalRow]);
+              return isAllDelivered ? (
+                <button
+                  type="button"
+                  className="btn-modal-confirm-delivery is-done"
+                  onClick={() => {
+                    onConfirmDelivery(targetRows, false);
+                    onClose();
+                  }}
+                >
+                  ↩️ Entregue · Desfazer Confirmação
+                  {targetRows.length > 1 ? ` (${targetRows.length} pacotes)` : ''}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-modal-confirm-delivery"
+                  onClick={() => {
+                    onConfirmDelivery(pendingRows.length > 0 ? pendingRows : targetRows, true);
+                    onClose();
+                  }}
+                >
+                  ✓ Confirmar Entrega
+                  {pendingRows.length > 1 ? ` (${pendingRows.length} pacotes do pino)` : ''}
+                </button>
+              );
+            })()}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="edit-stop-form">
+          <div className="add-modal-field">
+            <label htmlFor="edit-stop-recipient">Destinatário / Cliente:</label>
+            <input
+              id="edit-stop-recipient"
+              type="text"
+              value={recipient}
+              onChange={(e) => setRecipient(e.target.value)}
+              className="edit-stop-input"
+              placeholder="Nome do cliente"
+            />
+          </div>
+
+          <div className="add-modal-field">
+            <label htmlFor="edit-stop-street">Rua / Logradouro:</label>
+            <input
+              id="edit-stop-street"
+              type="text"
+              value={street}
+              onChange={(e) => setStreet(e.target.value)}
+              className="edit-stop-input"
+              placeholder="Nome da rua"
+            />
+          </div>
+
+          <div className="edit-stop-row-3">
+            <div className="add-modal-field">
+              <label htmlFor="edit-stop-num">Número:</label>
+              <input
+                id="edit-stop-num"
+                type="text"
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+                className="edit-stop-input"
+                placeholder="S/N"
+              />
+            </div>
+            <div className="add-modal-field">
+              <label htmlFor="edit-stop-quadra">Quadra:</label>
+              <div className="edit-quadra-inline">
+                <input
+                  id="edit-stop-quadra"
+                  type="text"
+                  value={quadra}
+                  onChange={(e) => setQuadra(e.target.value)}
+                  className="edit-stop-input"
+                  placeholder="Ex: 21"
+                />
+                {quadra.trim() && (
+                  <button
+                    type="button"
+                    className="btn-snap-quadra"
+                    onClick={handleSnapToQuadraCoords}
+                    title="Usar a coordenada desta Quadra"
+                  >
+                    📍
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="add-modal-field">
+              <label htmlFor="edit-stop-lote">Lote:</label>
+              <input
+                id="edit-stop-lote"
+                type="text"
+                value={lote}
+                onChange={(e) => setLote(e.target.value)}
+                className="edit-stop-input"
+                placeholder="Ex: 05"
+              />
+            </div>
+          </div>
+
+          <div className="edit-stop-row-2">
+            <div className="add-modal-field">
+              <label htmlFor="edit-stop-compl">Complemento:</label>
+              <input
+                id="edit-stop-compl"
+                type="text"
+                value={complement}
+                onChange={(e) => setComplement(e.target.value)}
+                className="edit-stop-input"
+                placeholder="Casa, Portão..."
+              />
+            </div>
+            <div className="add-modal-field">
+              <label htmlFor="edit-stop-phone">Telefone:</label>
+              <input
+                id="edit-stop-phone"
+                type="text"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="edit-stop-input"
+                placeholder="(21) 9..."
+              />
+            </div>
+          </div>
+
+          <div className="edit-stop-coords-box">
+            <div className="edit-coords-header">
+              <span>Coordenadas do Pino</span>
+              {stop.isManuallyAdjusted && stop.originalCoordinates && onRestoreOriginal && (
+                <button
+                  type="button"
+                  className="btn-restore-coords-inline"
+                  onClick={() => {
+                    onRestoreOriginal(stop.originalRow, { restoreOriginal: true });
+                    onClose();
+                  }}
+                >
+                  ↩️ Restaurar original
+                </button>
+              )}
+            </div>
+            <div className="edit-stop-row-2">
+              <div className="add-modal-field">
+                <label htmlFor="edit-stop-lat">Latitude:</label>
+                <input
+                  id="edit-stop-lat"
+                  type="text"
+                  value={latStr}
+                  onChange={(e) => setLatStr(e.target.value)}
+                  className="edit-stop-input font-mono"
+                />
+              </div>
+              <div className="add-modal-field">
+                <label htmlFor="edit-stop-lng">Longitude:</label>
+                <input
+                  id="edit-stop-lng"
+                  type="text"
+                  value={lngStr}
+                  onChange={(e) => setLngStr(e.target.value)}
+                  className="edit-stop-input font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="add-modal-actions">
+            <button type="button" className="btn-modal-cancel" onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn-modal-submit">
+              💾 Salvar Alterações
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function MapClickHandler({
   onMapBackgroundClick,
   isAddingQuadra,
   onAddMapClick,
@@ -1066,6 +1622,7 @@ function MapClickHandler({
 
 export default function MapView({
   addresses = [],
+  routeVersion = 0,
   selectedId,
   onSelect,
   center,
@@ -1074,6 +1631,10 @@ export default function MapView({
   onUpdateQuadra,
   onAddQuadra,
   onDeleteQuadra,
+  onUpdateAddress,
+  onConfirmDelivery,
+  groupedStops = [],
+  quadraHighlightRequest = null,
 }) {
   const [mapInstance, setMapInstance] = useState(null);
   const [tileStyle, setTileStyle] = useState('osm');
@@ -1085,9 +1646,43 @@ export default function MapView({
   const [quadraSearchInput, setQuadraSearchInput] = useState('');
   const [searchedQuadra, setSearchedQuadra] = useState(null);
   const [searchSeq, setSearchSeq] = useState(0);
+  const [prevExtHighlightSeq, setPrevExtHighlightSeq] = useState(0);
+  const [viewportSeq, setViewportSeq] = useState(0);
   const [pendingEdits, setPendingEdits] = useState(() => new Map());
   const [draggingQuadra, setDraggingQuadra] = useState(null);
   const [isSavingEdits, setIsSavingEdits] = useState(false);
+  const [editingStop, setEditingStop] = useState(null);
+  const [repositioningStop, setRepositioningStop] = useState(null);
+
+  if (quadraHighlightRequest && quadraHighlightRequest.seq !== prevExtHighlightSeq) {
+    setPrevExtHighlightSeq(quadraHighlightRequest.seq);
+    const norm = normalizeQuadraSearchTerm(quadraHighlightRequest.term);
+    setQuadraSearchInput(norm || quadraHighlightRequest.term);
+    setSearchedQuadra(norm || null);
+    setViewportSeq((v) => v + 1);
+  }
+
+  const isPickingMapSpot = isAddingQuadra || Boolean(repositioningStop);
+
+  const handlePickMapSpot = useCallback((latlng) => {
+    if (!latlng) return;
+    if (repositioningStop) {
+      if (onUpdateAddress) {
+        onUpdateAddress(repositioningStop.targetRows || repositioningStop.address.originalRow, {
+          coordinates: {
+            lat: Number(latlng.lat.toFixed(6)),
+            lng: Number(latlng.lng.toFixed(6)),
+          },
+          isManuallyAdjusted: true,
+        });
+      }
+      setRepositioningStop(null);
+      return;
+    }
+    if (isAddingQuadra) {
+      setPendingAddPoint(latlng);
+    }
+  }, [repositioningStop, isAddingQuadra, onUpdateAddress]);
 
   // Estado da localização do usuário (GPS)
   const [userLocation, setUserLocation] = useState(null);
@@ -1299,13 +1894,37 @@ export default function MapView({
     return map;
   }, [addresses]);
 
+  const displayGroups = useMemo(() => {
+    if (groupedStops && groupedStops.length > 0) return groupedStops;
+    return groupDeliveryAddressesForMap(addresses);
+  }, [groupedStops, addresses]);
+
+  // Mapeia cada número de parada da planilha (#36, #40...) ao número do pino exibido no mapa
+  const pinInfoByRow = useMemo(() => {
+    const map = new Map();
+    for (const g of displayGroups) {
+      for (const r of g.rowIds) {
+        map.set(r, { stopNumber: g.stopNumber, isDelivered: Boolean(g.isDelivered) });
+      }
+    }
+    return map;
+  }, [displayGroups]);
+
   const validAddresses = useMemo(() => {
     return addresses.filter(a => a.coordinates && !isNaN(a.coordinates.lat) && !isNaN(a.coordinates.lng));
   }, [addresses]);
 
+  const selectedGroup = useMemo(() => {
+    if (selectedId === null || selectedId === undefined) return null;
+    return displayGroups.find((g) => g.rowIds.includes(selectedId)) || null;
+  }, [displayGroups, selectedId]);
+
   const selectedAddress = useMemo(() => {
-    return addresses.find(a => a.originalRow === selectedId);
+    if (selectedId === null || selectedId === undefined) return null;
+    return addresses.find((a) => a.originalRow === selectedId) || null;
   }, [addresses, selectedId]);
+
+  const selectedStopNumber = selectedGroup ? selectedGroup.stopNumber : null;
 
   // Quadra destacada pode vir de uma busca manual ou da parada selecionada
   const highlightedQuadra = searchedQuadra || (selectedAddress?.quadra || null);
@@ -1332,29 +1951,64 @@ export default function MapView({
     }
   };
 
-  // Busca rápida de quadra
+  // Quadras deduplicadas compartilhadas entre a camada do mapa e a contagem na tela atual
+  const cleanQuadrasBase = useMemo(() => buildCleanQuadras(quadras), [quadras]);
+
+  // Atualiza contagem de quadras visíveis na tela quando houver filtro ativo
+  useEffect(() => {
+    if (!mapInstance || !searchedQuadra) return;
+    const handleViewportUpdate = () => setViewportSeq((v) => v + 1);
+    mapInstance.on('moveend', handleViewportUpdate);
+    mapInstance.on('zoomend', handleViewportUpdate);
+    return () => {
+      mapInstance.off('moveend', handleViewportUpdate);
+      mapInstance.off('zoomend', handleViewportUpdate);
+    };
+  }, [mapInstance, searchedQuadra]);
+
+  const quadraSearchStats = useMemo(() => {
+    if (!searchedQuadra) return null;
+    void viewportSeq;
+    const matches = cleanQuadrasBase.filter(
+      (q) =>
+        q._label === searchedQuadra ||
+        q.number === searchedQuadra ||
+        q.rawNumber === searchedQuadra
+    );
+    let onScreen = matches.length;
+    if (mapInstance) {
+      const bounds = mapInstance.getBounds();
+      onScreen = matches.filter((q) => bounds.contains([q.lat, q.lng])).length;
+    }
+    return {
+      label: searchedQuadra,
+      onScreen,
+      total: matches.length,
+    };
+  }, [searchedQuadra, cleanQuadrasBase, mapInstance, viewportSeq]);
+
+  // Destaque rápido da quadra SEM mover/scrollar o mapa da visão atual do usuário
   const handleSearchQuadra = useCallback((e) => {
     e.preventDefault();
-    if (!quadraSearchInput.trim() || !mapInstance) return;
-
-    const term = quadraSearchInput.trim().toUpperCase();
-    const numInt = parseInt(term, 10);
-
-    const found = quadras.find(q => {
-      if (q.rawNumber && q.rawNumber.toUpperCase() === term) return true;
-      if (q.number && q.number.toUpperCase() === term) return true;
-      if (!isNaN(numInt) && parseInt(q.number, 10) === numInt) return true;
-      return false;
-    });
-
-    if (found) {
-      setSearchedQuadra(formatQuadraNumber(found.rawNumber || found.number));
-      setSearchSeq(s => s + 1);
-      mapInstance.flyTo([found.lat, found.lng], 17, { duration: 1.0 });
-    } else {
-      alert(`Quadra ${term} não encontrada no mapa de Itaipuaçu.`);
+    const norm = normalizeQuadraSearchTerm(quadraSearchInput);
+    if (!norm) {
+      setSearchedQuadra(null);
+      return;
     }
-  }, [quadraSearchInput, quadras, mapInstance]);
+    setSearchedQuadra(norm);
+    setSearchSeq((s) => s + 1);
+    setViewportSeq((v) => v + 1);
+  }, [quadraSearchInput]);
+
+  const handleQuadraSearchChange = useCallback((e) => {
+    const val = e.target.value;
+    setQuadraSearchInput(val);
+    const norm = normalizeQuadraSearchTerm(val);
+    setSearchedQuadra(norm || null);
+    if (norm) {
+      setViewportSeq((v) => v + 1);
+    }
+  }, []);
 
   // Confirmação da inserção de nova quadra clicada no mapa
   const handleConfirmAddQuadra = useCallback((e) => {
@@ -1486,19 +2140,46 @@ export default function MapView({
           </button>
         )}
 
-        {/* Busca Rápida de Quadra */}
+        {/* Filtro Rápido de Quadra (sem scrollar/navegar do local atual) */}
         <form onSubmit={handleSearchQuadra} className="map-quadra-search-form">
           <input
             type="text"
-            placeholder="Ir para Quadra..."
+            placeholder="Quadra na tela..."
             value={quadraSearchInput}
-            onChange={(e) => setQuadraSearchInput(e.target.value)}
+            onChange={handleQuadraSearchChange}
             className="map-quadra-search-input"
+            title="Digite o número da quadra para destacar e contar quantas existem na tela sem mover o mapa"
           />
-          <button type="submit" className="btn-search-quadra" title="Localizar quadra">
-            🔍
-          </button>
+          {quadraSearchInput ? (
+            <button
+              type="button"
+              className="btn-search-quadra clear"
+              onClick={() => {
+                setQuadraSearchInput('');
+                setSearchedQuadra(null);
+              }}
+              title="Limpar busca de quadra"
+            >
+              ✕
+            </button>
+          ) : (
+            <button type="submit" className="btn-search-quadra" title="Destacar quadras visíveis na tela">
+              🔍
+            </button>
+          )}
         </form>
+
+        {quadraSearchStats && (
+          <div
+            className={`quadra-search-count-pill ${quadraSearchStats.onScreen > 0 ? 'has-match' : 'no-match'}`}
+            title={`Quadra ${quadraSearchStats.label}: ${quadraSearchStats.onScreen} na visualização atual, ${quadraSearchStats.total} no mapa`}
+          >
+            <span>
+              Qd {quadraSearchStats.label}: <strong>{quadraSearchStats.onScreen}</strong> na tela
+              <small className="qsc-total"> ({quadraSearchStats.total} total)</small>
+            </span>
+          </div>
+        )}
 
         {/* Seletor de Camada do Mapa */}
         <div className="map-style-toggle">
@@ -1528,10 +2209,18 @@ export default function MapView({
           </button>
         </div>
 
-        {validAddresses.length > 0 && (
+        {displayGroups.length > 0 && (
           <div className="map-badge-counter">
             <span className="dot-live"></span>
-            <strong>{validAddresses.length}</strong> paradas
+            {displayGroups.length < validAddresses.length ? (
+              <>
+                <strong>{displayGroups.length}</strong> pinos · {validAddresses.length} pacotes
+              </>
+            ) : (
+              <>
+                <strong>{displayGroups.length}</strong> paradas
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1543,41 +2232,39 @@ export default function MapView({
         preferCanvas={true}
         wheelDebounceTime={90}
         wheelPxPerZoomLevel={110}
-        className={`leaflet-map ${isAddingQuadra ? 'is-adding-quadra' : ''}`}
+        className={`leaflet-map ${isPickingMapSpot ? 'is-adding-quadra' : ''}`}
       >
         <TileLayer
           attribution={activeTile.attribution}
           url={activeTile.url}
           maxZoom={19}
         />
-        
+
         <MapController
           center={center}
           zoom={zoom}
           addresses={addresses}
+          routeVersion={routeVersion}
           onMapReady={setMapInstance}
         />
 
         {/* Camada das Quadras de Itaipuaçu (Verde como na foto e no PDF) */}
         <QuadraLayer
           quadras={quadras}
+          cleanQuadrasBase={cleanQuadrasBase}
           pendingEdits={pendingEdits}
           deliveryQuadrasMap={deliveryQuadrasMap}
+          pinInfoByRow={pinInfoByRow}
           highlightedQuadra={highlightedQuadra}
           searchSeq={searchSeq}
-          onSelectQuadra={() => {
-            setSearchedQuadra(null);
-          }}
+          onSelectQuadra={() => {}}
           onDeselectQuadra={() => {
             setAdjustMode(false);
-            setSearchedQuadra(null);
           }}
           showQuadras={showQuadras}
           adjustMode={adjustMode}
-          isAddingQuadra={isAddingQuadra}
-          onAddMapClick={(latlng) => {
-            setPendingAddPoint(latlng);
-          }}
+          isAddingQuadra={isPickingMapSpot}
+          onAddMapClick={handlePickMapSpot}
           onStageQuadraEdit={handleStageQuadraEdit}
           onDragActiveChange={setDraggingQuadra}
           onDeleteQuadra={handleDeleteQuadraWithCleanup}
@@ -1588,11 +2275,21 @@ export default function MapView({
 
         {/* Marcadores de Entregas da Rota */}
         <AddressMarkers
-          addresses={addresses}
+          groupedStops={displayGroups}
           selectedId={selectedId}
           onSelect={onSelect}
           userLocation={userLocation}
           onNavigateAddress={handleNavigateTarget}
+          onUpdateAddress={onUpdateAddress}
+          onConfirmDelivery={onConfirmDelivery}
+          onEditAddress={(address, stopNumber, group = null) => setEditingStop({ address, stopNumber, group })}
+          onStartReposition={(address, stopNumber, targetRows) => {
+            setIsAddingQuadra(false);
+            setPendingAddPoint(null);
+            setRepositioningStop({ address, stopNumber, targetRows });
+          }}
+          isPickingMapSpot={isPickingMapSpot}
+          onPickMapSpot={handlePickMapSpot}
         />
 
         {/* Marcador e Raio de Precisão da Localização do Usuário */}
@@ -1649,15 +2346,13 @@ export default function MapView({
 
         <MapClickHandler
           onMapBackgroundClick={() => {
-            if (!isAddingQuadra) {
+            if (!isPickingMapSpot) {
               setAdjustMode(false);
               setSearchedQuadra(null);
             }
           }}
-          isAddingQuadra={isAddingQuadra}
-          onAddMapClick={(latlng) => {
-            setPendingAddPoint(latlng);
-          }}
+          isAddingQuadra={isPickingMapSpot}
+          onAddMapClick={handlePickMapSpot}
         />
       </MapContainer>
 
@@ -1666,13 +2361,38 @@ export default function MapView({
         <div className="add-quadra-banner">
           <span className="banner-pulse"></span>
           <span>📍 <strong>Modo Adicionar Número:</strong> Clique no local do mapa onde deseja posicionar o número da quadra.</span>
-          <button 
-            type="button" 
+          <button
+            type="button"
             className="btn-cancel-banner"
             onClick={() => {
               setIsAddingQuadra(false);
               setPendingAddPoint(null);
             }}
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {/* Banner flutuante no topo ao clicar "Mover no Mapa" para uma parada */}
+      {repositioningStop && (
+        <div className="add-quadra-banner reposition-stop-banner">
+          <span className="banner-pulse"></span>
+          <span>
+            🎯{' '}
+            <strong>
+              Mover Parada #{repositioningStop.stopNumber}
+              {repositioningStop.targetRows && repositioningStop.targetRows.length > 1
+                ? ` (${repositioningStop.targetRows.length} pacotes)`
+                : ''}
+              :
+            </strong>{' '}
+            Clique em qualquer ponto do mapa para posicionar este pino lá.
+          </span>
+          <button
+            type="button"
+            className="btn-cancel-banner"
+            onClick={() => setRepositioningStop(null)}
           >
             Cancelar
           </button>
@@ -1784,16 +2504,27 @@ export default function MapView({
       )}
 
       {/* Mini Card Flutuante de Endereço Selecionado */}
-      {selectedAddress && !draggingQuadra && pendingEditsList.length === 0 && (
+      {selectedAddress && !draggingQuadra && pendingEditsList.length === 0 && !repositioningStop && (
         <div className="map-selected-card">
           <div className="card-info">
             <div className="card-meta">
-              <span className="card-badge">Parada #{selectedAddress.originalRow}</span>
+              <span className="card-badge">Parada #{selectedStopNumber || selectedAddress.originalRow}</span>
+              {(selectedGroup?.isDelivered || selectedAddress.delivered) && (
+                <span className="card-tag delivered">✅ Entregue</span>
+              )}
+              {selectedGroup && selectedGroup.packageCount > 1 && (
+                <span className="card-tag pkg-count">
+                  📦 {selectedGroup.packageCount} pacotes neste pino
+                </span>
+              )}
               {selectedAddress.quadra && (
                 <span className="card-tag quadra">Quadra {selectedAddress.quadra}</span>
               )}
               {selectedAddress.lote && (
                 <span className="card-tag lote">Lote {selectedAddress.lote}</span>
+              )}
+              {selectedAddress.isManuallyAdjusted && (
+                <span className="card-tag adjusted">📌 Ajustado</span>
               )}
             </div>
             <strong className="card-name">{selectedAddress.recipient}</strong>
@@ -1801,8 +2532,59 @@ export default function MapView({
               {selectedAddress.street}{selectedAddress.number ? `, Nº ${selectedAddress.number}` : ''}
             </p>
           </div>
-          
+
           <div className="card-actions">
+            {onConfirmDelivery && (
+              <button
+                type="button"
+                className={`card-btn-action confirm-delivery ${selectedGroup?.isDelivered ? 'is-done' : ''}`}
+                onClick={() => {
+                  const targetRows = selectedGroup?.rowIds || [selectedAddress.originalRow];
+                  onConfirmDelivery(targetRows, !selectedGroup?.isDelivered);
+                }}
+                title={
+                  selectedGroup?.isDelivered
+                    ? 'Desfazer entrega deste pino'
+                    : 'Confirmar entrega deste pino (pino ficará cinza)'
+                }
+              >
+                {selectedGroup?.isDelivered ? '↩️ Entregue' : '✓ Confirmar'}
+              </button>
+            )}
+            {onUpdateAddress && (
+              <>
+                <button
+                  type="button"
+                  className="card-btn-action edit-pin"
+                  onClick={() =>
+                    setEditingStop({
+                      address: selectedAddress,
+                      stopNumber: selectedStopNumber || selectedAddress.originalRow,
+                      group: selectedGroup,
+                    })
+                  }
+                  title="Editar informações e coordenadas deste pino"
+                >
+                  ✏️ Editar
+                </button>
+                <button
+                  type="button"
+                  className="card-btn-action move-pin"
+                  onClick={() => {
+                    setIsAddingQuadra(false);
+                    setPendingAddPoint(null);
+                    setRepositioningStop({
+                      address: selectedAddress,
+                      stopNumber: selectedStopNumber || selectedAddress.originalRow,
+                      targetRows: selectedGroup?.rowIds || [selectedAddress.originalRow],
+                    });
+                  }}
+                  title="Clicar em um ponto do mapa para mover este pino"
+                >
+                  🎯 Mover
+                </button>
+              </>
+            )}
             {selectedAddress.coordinates && (
               <>
                 <button
@@ -1811,7 +2593,7 @@ export default function MapView({
                   onClick={() => handleNavigateTarget({
                     lat: selectedAddress.coordinates.lat,
                     lng: selectedAddress.coordinates.lng,
-                    label: selectedAddress.recipient || `Parada #${selectedAddress.originalRow}`
+                    label: selectedAddress.recipient || `Parada #${selectedStopNumber || selectedAddress.originalRow}`
                   }, 'google')}
                   title="Navegar no Google Maps"
                 >
@@ -1823,7 +2605,7 @@ export default function MapView({
                   onClick={() => handleNavigateTarget({
                     lat: selectedAddress.coordinates.lat,
                     lng: selectedAddress.coordinates.lng,
-                    label: selectedAddress.recipient || `Parada #${selectedAddress.originalRow}`
+                    label: selectedAddress.recipient || `Parada #${selectedStopNumber || selectedAddress.originalRow}`
                   }, 'waze')}
                   title="Navegar no Waze"
                 >
@@ -1842,6 +2624,21 @@ export default function MapView({
             )}
           </div>
         </div>
+      )}
+
+      {/* Modal de Edição Completa da Parada / Pino */}
+      {editingStop && (
+        <EditAddressModal
+          key={editingStop.address.originalRow}
+          stop={editingStop.address}
+          stopNumber={editingStop.stopNumber}
+          stopGroup={editingStop.group || displayGroups.find((g) => g.rowIds.includes(editingStop.address.originalRow)) || null}
+          quadras={quadras}
+          onSave={onUpdateAddress}
+          onRestoreOriginal={onUpdateAddress}
+          onConfirmDelivery={onConfirmDelivery}
+          onClose={() => setEditingStop(null)}
+        />
       )}
 
       {/* Modal de Pergunta / Ativação de Localização */}

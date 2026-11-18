@@ -1,8 +1,13 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { parseSpreadsheet, detectColumns, extractAddresses, parseShopeeSpreadsheet, getSampleDeliveryData } from '../utils/spreadsheet';
 import './FileUpload.css';
 
-export default function FileUpload({ onAddressesLoaded, onError }) {
+export default function FileUpload({
+  onAddressesLoaded,
+  onError,
+  importedSpreadsheet = null,
+  onRemoveSpreadsheet,
+}) {
   const [dragActive, setDragActive] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileType, setFileType] = useState('auto');
@@ -11,13 +16,25 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
   const [allRows, setAllRows] = useState([]);
   const [showPreview, setShowPreview] = useState(false);
   const [fileName, setFileName] = useState('');
+  const fileInputRef = useRef(null);
+
+  const resetLocalFileState = useCallback(() => {
+    setFileName('');
+    setHeaders([]);
+    setDetectedColumns(null);
+    setAllRows([]);
+    setShowPreview(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
 
   const handleFile = useCallback(async (file) => {
     if (!file) return;
-    
+
     const validExtensions = ['.xlsx', '.xls', '.csv'];
     const hasValidExt = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
-    
+
     if (!hasValidExt) {
       onError('Formato inválido. Por favor, envie uma planilha (.xlsx, .xls ou .csv)');
       return;
@@ -34,13 +51,13 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
         if (!addresses || addresses.length === 0) {
           throw new Error('Nenhum endereço com CEP ou logradouro foi encontrado na planilha Shopee.');
         }
-        onAddressesLoaded(addresses, 'shopee');
+        onAddressesLoaded(addresses, 'shopee', file.name);
       } else {
         const rows = await parseSpreadsheet(file);
         if (!rows || rows.length < 2) {
           throw new Error('A planilha está vazia ou não contém dados suficientes.');
         }
-        
+
         const headerRow = rows[0] || [];
         const columns = detectColumns(headerRow);
         setHeaders(headerRow);
@@ -69,7 +86,7 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0]);
     }
@@ -95,15 +112,22 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
         onError('Nenhum endereço pôde ser extraído com o mapeamento atual.');
         return;
       }
-      onAddressesLoaded(addresses, fileType);
+      onAddressesLoaded(addresses, fileType, fileName);
       setShowPreview(false);
     }
-  }, [detectedColumns, allRows, fileType, onAddressesLoaded, onError]);
+  }, [detectedColumns, allRows, fileType, fileName, onAddressesLoaded, onError]);
 
   const handleLoadDemo = () => {
     const demoData = getSampleDeliveryData();
-    onAddressesLoaded(demoData, 'demo');
+    onAddressesLoaded(demoData, 'demo', 'Exemplo (Itaipuaçu)');
   };
+
+  const handleRemoveImported = useCallback(() => {
+    resetLocalFileState();
+    if (onRemoveSpreadsheet) {
+      onRemoveSpreadsheet();
+    }
+  }, [resetLocalFileState, onRemoveSpreadsheet]);
 
   const fieldLabels = {
     street: 'Rua / Logradouro',
@@ -139,6 +163,34 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
         </div>
       </div>
 
+      {importedSpreadsheet && (
+        <div className="imported-spreadsheet-banner">
+          <div className="imported-file-meta">
+            <span className="imported-file-icon">📄</span>
+            <div className="imported-file-texts">
+              <span className="imported-file-label">Planilha importada ativa</span>
+              <strong className="imported-file-name" title={importedSpreadsheet.name}>
+                {importedSpreadsheet.name} ({importedSpreadsheet.count}{' '}
+                {importedSpreadsheet.count === 1 ? 'parada' : 'paradas'})
+              </strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-remove-spreadsheet"
+            onClick={handleRemoveImported}
+            disabled={isProcessing}
+            title="Remover planilha importada e limpar paradas do mapa"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            <span>Remover Planilha</span>
+          </button>
+        </div>
+      )}
+
       <div className="file-type-chips">
         <label className={`chip-option ${fileType === 'auto' ? 'active' : ''}`}>
           <input
@@ -165,6 +217,7 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
       </div>
 
       <input
+        ref={fileInputRef}
         type="file"
         id="file-input"
         accept=".xlsx,.xls,.csv"
@@ -172,10 +225,10 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
         disabled={isProcessing}
         style={{ display: 'none' }}
       />
-      
-      <div 
-        className="upload-dropzone" 
-        onClick={() => !isProcessing && document.getElementById('file-input').click()}
+
+      <div
+        className="upload-dropzone"
+        onClick={() => !isProcessing && fileInputRef.current?.click()}
         onDragEnter={handleDrag}
         onDragOver={handleDrag}
         onDragLeave={handleDrag}
@@ -211,12 +264,23 @@ export default function FileUpload({ onAddressesLoaded, onError }) {
         <div className="column-preview-box">
           <div className="preview-header">
             <h4>Mapeamento de Colunas Detectadas</h4>
-            <span className="row-counter-tag">{allRows.length - 1} linhas encontradas</span>
+            <div className="preview-header-actions">
+              <span className="row-counter-tag">{allRows.length - 1} linhas</span>
+              <button
+                type="button"
+                className="btn-discard-preview"
+                onClick={resetLocalFileState}
+                disabled={isProcessing}
+                title="Remover arquivo selecionado"
+              >
+                ✕ Remover
+              </button>
+            </div>
           </div>
           <p className="preview-help">
             Confirme as colunas da sua planilha antes de carregar no mapa:
           </p>
-          
+
           <div className="columns-selector-grid">
             {Object.keys(fieldLabels).map((field) => (
               <div key={field} className="column-field-row">

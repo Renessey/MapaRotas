@@ -142,6 +142,27 @@ body {
   color: #fcd34d;
 }
 
+.summary-pill.delivered {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #86efac;
+  font-family: inherit;
+}
+
+.summary-pill.delivered .summary-num {
+  color: #bbf7d0;
+}
+
+.summary-pill.clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.summary-pill.clickable:hover {
+  transform: translateY(-1px);
+  background: rgba(34, 197, 94, 0.28);
+}
+
 .summary-num {
   font-size: 14px;
   font-weight: 800;
@@ -245,8 +266,15 @@ body {
 }
 
 @keyframes slideToast {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .toast-banner.success {
@@ -339,12 +367,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 9px 8px;
+  gap: 5px;
+  padding: 8px 6px;
   border: none;
   background: transparent;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--slate-sub);
   cursor: pointer;
@@ -434,6 +462,14 @@ body {
 .btn-go-import:hover {
   background: var(--primary-hover);
   transform: translateY(-1px);
+}
+
+.btn-go-import.success {
+  background: #059669;
+}
+
+.btn-go-import.success:hover {
+  background: #047857;
 }
 
 /* Rodapé Docked do Painel */

@@ -293,3 +293,103 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Banner de Planilha Importada Ativa + Botão Remover */
+.imported-spreadsheet-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.imported-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.imported-file-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.imported-file-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.imported-file-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #64748b;
+}
+
+.imported-file-name {
+  font-size: 12px;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-remove-spreadsheet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: #dc2626;
+  border: 1px solid #b91c1c;
+  color: #ffffff;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-remove-spreadsheet:hover:not(:disabled) {
+  background: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.28);
+}
+
+.btn-remove-spreadsheet:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.preview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-discard-preview {
+  padding: 3px 8px;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-discard-preview:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}

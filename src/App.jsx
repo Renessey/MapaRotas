@@ -1,19 +1,105 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import FileUpload from './components/FileUpload';
 import AddressList from './components/AddressList';
+import DeliveryHistory from './components/DeliveryHistory';
 import MapView from './components/MapView';
 import { geocodeAddresses, clearCache, findItaipuacuQuadra } from './utils/geocoding';
+import { groupDeliveryAddressesForMap } from './utils/addressGrouping';
 import itaipuacuQuadras from './data/itaipuacuQuadras.json';
 import './App.css';
 
+const ACTIVE_ROUTE_STORAGE_KEY = 'rota_scanner_active_route';
+const DELIVERY_OVERRIDES_STORAGE_KEY = 'rota_scanner_delivery_overrides';
+
+function getStopOverrideKey(addr) {
+  if (!addr) return null;
+  const oid = String(addr.orderId || '').trim();
+  const hasRealOrderId = oid && !/^(PED|SHOPEE)-\d+$/i.test(oid);
+  if (hasRealOrderId) return `order:${oid.toUpperCase()}`;
+  const streetPart = String(addr.street || '').trim().toLowerCase();
+  const recipientPart = String(addr.recipient || '').trim().toLowerCase();
+  const qPart = String(addr.quadra || '').trim().toUpperCase();
+  const lPart = String(addr.lote || '').trim().toUpperCase();
+  if (!streetPart && !recipientPart) return null;
+  return `addr:${streetPart}|${recipientPart}|${qPart}|${lPart}`;
+}
+
+function readSavedActiveRoute() {
+  try {
+    const raw = localStorage.getItem(ACTIVE_ROUTE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.addresses) && parsed.addresses.length > 0) {
+      return parsed;
+    }
+  } catch (e) {
+    console.warn('Erro ao restaurar rota ativa do localStorage:', e);
+  }
+  return null;
+}
+
+function loadDeliveryOverrides() {
+  try {
+    const raw = localStorage.getItem(DELIVERY_OVERRIDES_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDeliveryOverride(addr, coords) {
+  const key = getStopOverrideKey(addr);
+  if (!key || !coords) return;
+  try {
+    const map = loadDeliveryOverrides();
+    map[key] = { lat: coords.lat, lng: coords.lng };
+    localStorage.setItem(DELIVERY_OVERRIDES_STORAGE_KEY, JSON.stringify(map));
+  } catch (e) {
+    console.warn('Erro ao salvar posição ajustada da entrega:', e);
+  }
+}
+
+function removeDeliveryOverride(addr) {
+  const key = getStopOverrideKey(addr);
+  if (!key) return;
+  try {
+    const map = loadDeliveryOverrides();
+    if (key in map) {
+      delete map[key];
+      localStorage.setItem(DELIVERY_OVERRIDES_STORAGE_KEY, JSON.stringify(map));
+    }
+  } catch (e) {
+    console.warn('Erro ao remover posição ajustada da entrega:', e);
+  }
+}
+
+function buildUpdatedFullAddress(addr) {
+  let full = addr.street || '';
+  if (addr.number) full += `, ${addr.number}`;
+  if (addr.quadra) full += `, Qd ${addr.quadra}`;
+  if (addr.lote) full += `, Lt ${addr.lote}`;
+  if (addr.complement) full += `, ${addr.complement}`;
+  if (addr.neighborhood) full += `, ${addr.neighborhood}`;
+  if (addr.city) full += `, ${addr.city}`;
+  if (addr.state) full += `, ${addr.state}`;
+  if (addr.zipCode) full += `, CEP: ${addr.zipCode}`;
+  return full;
+}
+
 function App() {
-  const [addresses, setAddresses] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [savedInitialRoute] = useState(() => readSavedActiveRoute());
+  const [addresses, setAddresses] = useState(() => savedInitialRoute?.addresses || []);
+  const [selectedId, setSelectedId] = useState(() => savedInitialRoute?.addresses?.[0]?.originalRow || null);
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const [importedSpreadsheet, setImportedSpreadsheet] = useState(() => savedInitialRoute?.importedSpreadsheet || null);
+  const [routeVersion, setRouteVersion] = useState(() => (savedInitialRoute?.addresses?.length ? 1 : 0));
   const [notification, setNotification] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [mapZoom, setMapZoom] = useState(null);
+  const [quadraHighlightRequest, setQuadraHighlightRequest] = useState(null);
+  const routeSessionRef = useRef(0);
+  const geocodeAbortRef = useRef(null);
   // Todas as quadras de Itaipuaçu já vêm carregadas por padrão (com persistência de ajustes personalizados)
   const [quadras, setQuadras] = useState(() => {
     try {
@@ -58,12 +144,30 @@ function App() {
       return itaipuacuQuadras;
     }
   });
-  // Abas do painel lateral: 'deliveries' | 'upload'
-  const [activeTab, setActiveTab] = useState('upload');
+  // Abas do painel lateral: 'deliveries' | 'history' | 'upload'
+  const [activeTab, setActiveTab] = useState(() =>
+    savedInitialRoute?.addresses?.length ? 'deliveries' : 'upload'
+  );
   // Visualização mobile: 'map' | 'sidebar'
   const [mobileView, setMobileView] = useState('map');
   // Painel lateral recolhido no desktop
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Persiste a rota importada e as posições ajustadas dos pinos no localStorage
+  useEffect(() => {
+    try {
+      if (addresses.length > 0) {
+        localStorage.setItem(
+          ACTIVE_ROUTE_STORAGE_KEY,
+          JSON.stringify({ addresses, importedSpreadsheet })
+        );
+      } else {
+        localStorage.removeItem(ACTIVE_ROUTE_STORAGE_KEY);
+      }
+    } catch (e) {
+      console.warn('Erro ao salvar rota ativa no localStorage:', e);
+    }
+  }, [addresses, importedSpreadsheet]);
 
   const showNotification = useCallback((message, type = 'info', timeout = 4000) => {
     setNotification({ message, type });
@@ -72,15 +176,33 @@ function App() {
     }
   }, []);
 
-  const handleAddressesLoaded = useCallback(async (newAddresses) => {
-    // Para endereços que já possuem Quadra informada mas não possuem coordenadas,
-    // aplica posicionamento imediato na quadra de Itaipuaçu correspondente
+  const handleAddressesLoaded = useCallback(async (newAddresses, fileType = 'auto', fileName = '') => {
+    if (geocodeAbortRef.current) {
+      geocodeAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    geocodeAbortRef.current = controller;
+    const sessionId = ++routeSessionRef.current;
+
+    const resolvedName =
+      fileName || (fileType === 'demo' ? 'Exemplo (Itaipuaçu)' : 'Planilha importada');
+    setImportedSpreadsheet({
+      name: resolvedName,
+      count: newAddresses.length,
+      type: fileType,
+    });
+    setRouteVersion(v => v + 1);
+
+    const overridesMap = loadDeliveryOverrides();
+
+    // Para endereços que já possuem ajuste manual salvo ou Quadra informada sem coordenadas,
+    // aplica o posicionamento correspondente antes de consultar o servidor OSM
     const prelocatedAddresses = newAddresses.map(addr => {
-      if (addr.coordinates) return addr;
-      if (addr.quadra) {
+      let baseAddr = addr;
+      if (!addr.coordinates && addr.quadra) {
         const qMatch = findItaipuacuQuadra(addr.quadra);
         if (qMatch) {
-          return {
+          baseAddr = {
             ...addr,
             coordinates: { lat: qMatch.lat, lng: qMatch.lng },
             geocoded: true,
@@ -88,51 +210,88 @@ function App() {
           };
         }
       }
-      return addr;
+
+      const overrideKey = getStopOverrideKey(baseAddr);
+      const savedOverride = overrideKey ? overridesMap[overrideKey] : null;
+      if (savedOverride && typeof savedOverride.lat === 'number' && typeof savedOverride.lng === 'number') {
+        return {
+          ...baseAddr,
+          originalCoordinates: baseAddr.coordinates ? { ...baseAddr.coordinates } : null,
+          coordinates: { lat: savedOverride.lat, lng: savedOverride.lng },
+          geocoded: true,
+          isManuallyAdjusted: true,
+        };
+      }
+
+      return baseAddr;
     });
 
     setAddresses(prelocatedAddresses);
     setSelectedId(prelocatedAddresses[0]?.originalRow || null);
+    setMapCenter(null);
+    setMapZoom(null);
     clearCache();
 
     // Ativa automaticamente a aba de entregas
     setActiveTab('deliveries');
     setMobileView('map');
 
-    const needsGeocoding = prelocatedAddresses.filter(a => !a.coordinates || a.isQuadraLocated);
-    const alreadyGeocoded = prelocatedAddresses.filter(a => a.coordinates && !a.isQuadraLocated).length;
+    const needsGeocoding = prelocatedAddresses.filter(
+      a => !a.isManuallyAdjusted && (!a.coordinates || a.isQuadraLocated)
+    );
+    const alreadyGeocoded = prelocatedAddresses.filter(
+      a => a.coordinates && (!a.isQuadraLocated || a.isManuallyAdjusted)
+    ).length;
 
     if (needsGeocoding.length === 0) {
+      setIsGeocoding(false);
+      setGeocodingProgress(null);
       if (alreadyGeocoded > 0) {
         showNotification(`${alreadyGeocoded} endereços carregados com coordenadas prontas!`, 'success');
       }
       return;
     }
 
-    showNotification(`${newAddresses.length} endereços importados. As quadras de Itaipuaçu já estão ativas no mapa!`, 'info', 3500);
+    showNotification(`${newAddresses.length} endereços importados. Você já pode arrastar qualquer pino no mapa!`, 'info', 3500);
     setIsGeocoding(true);
     setGeocodingProgress({ current: 0, total: needsGeocoding.length, currentAddress: null });
 
     try {
-      const geocodedAddresses = await geocodeAddresses(needsGeocoding, (current, total, currentAddress) => {
-        setGeocodingProgress({ current, total, currentAddress });
-      });
+      const geocodedAddresses = await geocodeAddresses(
+        needsGeocoding,
+        (current, total, currentAddress) => {
+          if (sessionId === routeSessionRef.current) {
+            setGeocodingProgress({ current, total, currentAddress });
+          }
+        },
+        controller.signal
+      );
 
-      const finalAddresses = prelocatedAddresses.map(addr => {
-        const updated = geocodedAddresses.find(g => g.originalRow === addr.originalRow);
-        if (updated && updated.coordinates) return updated;
-        return addr;
-      });
+      if (sessionId !== routeSessionRef.current || controller.signal.aborted) {
+        return;
+      }
 
-      setAddresses(finalAddresses);
+      // Usa atualização funcional para preservar pinos arrastados manualmente durante a geocodificação
+      setAddresses(prev =>
+        prev.map(addr => {
+          if (addr.isManuallyAdjusted) return addr;
+          const updated = geocodedAddresses.find(g => g.originalRow === addr.originalRow);
+          if (updated && updated.coordinates) return updated;
+          return addr;
+        })
+      );
       setGeocodingProgress(null);
-      const successCount = finalAddresses.filter(a => a.coordinates).length;
-      showNotification(`${successCount} de ${finalAddresses.length} paradas posicionadas no mapa de Itaipuaçu!`, 'success');
+      const newlyLocated = geocodedAddresses.filter(a => a.coordinates).length + alreadyGeocoded;
+      showNotification(`${newlyLocated} de ${prelocatedAddresses.length} paradas posicionadas no mapa de Itaipuaçu!`, 'success');
     } catch (err) {
-      showNotification('Erro durante a geocodificação: ' + err.message, 'error', 6000);
-      setGeocodingProgress(null);
+      if (sessionId === routeSessionRef.current) {
+        showNotification('Erro durante a geocodificação: ' + err.message, 'error', 6000);
+        setGeocodingProgress(null);
+      }
     } finally {
-      setIsGeocoding(false);
+      if (sessionId === routeSessionRef.current) {
+        setIsGeocoding(false);
+      }
     }
   }, [showNotification]);
 
@@ -140,8 +299,10 @@ function App() {
     showNotification(err, 'error', 5000);
   }, [showNotification]);
 
-  const handleSelect = useCallback((id) => {
+  const handleSelect = useCallback((id, options = {}) => {
+    const { pan = true } = options;
     setSelectedId(id);
+    if (!pan) return;
     const address = addresses.find(a => a.originalRow === id);
     if (address?.coordinates) {
       setMapCenter([address.coordinates.lat, address.coordinates.lng]);
@@ -151,49 +312,258 @@ function App() {
   }, [addresses]);
 
   const handleSelectQuadra = useCallback((quadraStr) => {
-    const qMatch = findItaipuacuQuadra(quadraStr);
-    if (qMatch) {
-      setMapCenter([qMatch.lat, qMatch.lng]);
-      setMapZoom(17);
-      setMobileView('map');
-      showNotification(`Centralizando na Quadra ${qMatch.rawNumber || qMatch.number} de Itaipuaçu`, 'info', 2500);
-    }
+    if (!quadraStr) return;
+    setQuadraHighlightRequest((prev) => ({
+      term: String(quadraStr),
+      seq: (prev?.seq || 0) + 1,
+    }));
+    setMobileView('map');
+    showNotification(`Destacando Quadra ${quadraStr} sem mover sua tela`, 'info', 2500);
   }, [showNotification]);
 
+  // Agrupa pacotes para o mesmo endereço em pinos únicos no mapa
+  const groupedStops = useMemo(() => groupDeliveryAddressesForMap(addresses), [addresses]);
+
+  // Separa pacotes pendentes (Entregas) e pacotes já entregues (Histórico)
+  const pendingAddresses = useMemo(
+    () => addresses.filter((a) => !a.delivered),
+    [addresses]
+  );
+  const deliveredAddresses = useMemo(
+    () => addresses.filter((a) => Boolean(a.delivered)),
+    [addresses]
+  );
+
+  // Marca entrega como concluída (movendo para Histórico e deixando pino cinza no mapa) ou desfaz
+  const handleConfirmDelivery = useCallback((targetRows, delivered = true) => {
+    const rowSet = new Set(Array.isArray(targetRows) ? targetRows : [targetRows]);
+    if (rowSet.size === 0) return;
+
+    const matchedGroup = groupedStops.find((g) => g.rowIds.some((r) => rowSet.has(r)));
+    const nowIso = delivered ? new Date().toISOString() : null;
+    const affectedRows = [];
+
+    setAddresses((prev) =>
+      prev.map((addr) => {
+        if (!rowSet.has(addr.originalRow)) return addr;
+        affectedRows.push(addr.originalRow);
+        return {
+          ...addr,
+          delivered: Boolean(delivered),
+          deliveredAt: delivered ? nowIso : null,
+        };
+      })
+    );
+
+    const rowsList = affectedRows.length > 0 ? affectedRows : Array.from(rowSet);
+    const rowsLabel = rowsList.slice(0, 4).map((r) => `#${r}`).join(', ') +
+      (rowsList.length > 4 ? ` +${rowsList.length - 4}` : '');
+    const count = rowsList.length;
+
+    if (delivered) {
+      const pinInfo = matchedGroup ? `Pino #${matchedGroup.stopNumber} (${rowsLabel})` : rowsLabel;
+      showNotification(
+        count > 1
+          ? `✓ ${count} pacotes entregues — ${pinInfo} movidos para Histórico!`
+          : `✓ Entrega ${rowsLabel} concluída e movida para Histórico!`,
+        'success',
+        3500
+      );
+    } else {
+      showNotification(
+        count > 1
+          ? `↩️ ${count} pacotes (${rowsLabel}) reabertos na lista de Entregas.`
+          : `↩️ Entrega ${rowsLabel} movida de volta para Entregas.`,
+        'info',
+        3000
+      );
+    }
+  }, [groupedStops, showNotification]);
+
+  // Atualiza posição (ao arrastar, aceitando 1 ou múltiplos pacotes do mesmo pino) ou dados editados
+  const handleUpdateAddress = useCallback((targetRows, updates, silentToast = false) => {
+    const rowSet = new Set(Array.isArray(targetRows) ? targetRows : [targetRows]);
+    let targetGroupLabel = '';
+    let matchedCount = 0;
+    let actionKind = 'edit';
+
+    const matchedGroup = groupedStops.find(g => g.rowIds.some(r => rowSet.has(r)));
+    if (matchedGroup) {
+      targetGroupLabel = `#${matchedGroup.stopNumber}`;
+    }
+
+    setAddresses(prev =>
+      prev.map((addr, idx) => {
+        if (!rowSet.has(addr.originalRow)) return addr;
+        matchedCount += 1;
+        if (!targetGroupLabel) targetGroupLabel = `#${idx + 1}`;
+
+        if (updates.restoreOriginal && addr.originalCoordinates) {
+          actionKind = 'restore';
+          removeDeliveryOverride(addr);
+          return {
+            ...addr,
+            coordinates: { ...addr.originalCoordinates },
+            isManuallyAdjusted: false,
+            geocoded: true,
+            error: null,
+          };
+        }
+
+        const nextCoords = updates.coordinates
+          ? {
+              lat: Number(updates.coordinates.lat),
+              lng: Number(updates.coordinates.lng),
+            }
+          : addr.coordinates;
+
+        const hasValidNewCoords =
+          nextCoords && !isNaN(nextCoords.lat) && !isNaN(nextCoords.lng);
+
+        const coordsChanged = Boolean(updates.coordinates && hasValidNewCoords);
+        const originalCoords =
+          addr.originalCoordinates ||
+          (addr.coordinates && !addr.isManuallyAdjusted ? { ...addr.coordinates } : null);
+
+        const nextAddr = {
+          ...addr,
+          recipient: updates.recipient !== undefined ? updates.recipient : addr.recipient,
+          street: updates.street !== undefined ? updates.street : addr.street,
+          number: updates.number !== undefined ? updates.number : addr.number,
+          quadra: updates.quadra !== undefined ? updates.quadra : addr.quadra,
+          lote: updates.lote !== undefined ? updates.lote : addr.lote,
+          complement: updates.complement !== undefined ? updates.complement : addr.complement,
+          neighborhood: updates.neighborhood !== undefined ? updates.neighborhood : addr.neighborhood,
+          phone: updates.phone !== undefined ? updates.phone : addr.phone,
+          coordinates: hasValidNewCoords ? nextCoords : addr.coordinates,
+          originalCoordinates: originalCoords,
+          geocoded: hasValidNewCoords ? true : addr.geocoded,
+          error: hasValidNewCoords ? null : addr.error,
+          isManuallyAdjusted:
+            updates.isManuallyAdjusted !== undefined
+              ? updates.isManuallyAdjusted
+              : coordsChanged
+                ? true
+                : addr.isManuallyAdjusted,
+        };
+
+        nextAddr.hasQuadraLote = Boolean(nextAddr.quadra || nextAddr.lote);
+        nextAddr.fullAddress = buildUpdatedFullAddress(nextAddr);
+
+        if (coordsChanged && hasValidNewCoords) {
+          actionKind = 'move';
+          saveDeliveryOverride(addr, nextCoords);
+          if (getStopOverrideKey(nextAddr) !== getStopOverrideKey(addr)) {
+            saveDeliveryOverride(nextAddr, nextCoords);
+          }
+        }
+
+        return nextAddr;
+      })
+    );
+
+    if (!silentToast && matchedCount > 0) {
+      let msg = '';
+      if (actionKind === 'restore') {
+        msg = `Pino ${targetGroupLabel} restaurado para a posição original.`;
+      } else if (actionKind === 'move') {
+        msg =
+          matchedCount > 1
+            ? `Pino ${targetGroupLabel} (${matchedCount} pacotes) posicionado no local escolhido!`
+            : `Pino ${targetGroupLabel} posicionado no local escolhido!`;
+      } else {
+        msg = `Dados da Parada ${targetGroupLabel} atualizados!`;
+      }
+      showNotification(msg, 'success', 2500);
+    }
+  }, [groupedStops, showNotification]);
+
   const handleRemove = useCallback((id) => {
-    setAddresses(prev => prev.filter(a => a.originalRow !== id));
+    const remaining = addresses.filter(a => a.originalRow !== id);
+    setAddresses(remaining);
     if (selectedId === id) {
-      const remaining = addresses.filter(a => a.originalRow !== id);
       setSelectedId(remaining[0]?.originalRow || null);
+    }
+    if (remaining.length === 0) {
+      if (geocodeAbortRef.current) {
+        geocodeAbortRef.current.abort();
+      }
+      routeSessionRef.current += 1;
+      setImportedSpreadsheet(null);
+      setGeocodingProgress(null);
+      setIsGeocoding(false);
+    } else {
+      setImportedSpreadsheet(prev => (prev ? { ...prev, count: remaining.length } : prev));
     }
   }, [addresses, selectedId]);
 
+  const handleRemoveSpreadsheet = useCallback(() => {
+    if (geocodeAbortRef.current) {
+      geocodeAbortRef.current.abort();
+      geocodeAbortRef.current = null;
+    }
+    routeSessionRef.current += 1;
+    setAddresses([]);
+    setSelectedId(null);
+    setGeocodingProgress(null);
+    setIsGeocoding(false);
+    setImportedSpreadsheet(null);
+    setMapCenter(null);
+    setMapZoom(null);
+    setActiveTab('upload');
+    showNotification('Planilha importada removida com sucesso.', 'info', 3500);
+  }, [showNotification]);
+
   const handleRetryGeocoding = useCallback(async () => {
-    const failedAddresses = addresses.filter(a => a.error || (!a.geocoded && !a.coordinates));
+    const failedAddresses = addresses.filter(
+      a => !a.isManuallyAdjusted && (a.error || (!a.geocoded && !a.coordinates))
+    );
     if (failedAddresses.length === 0) {
       showNotification('Todos os endereços já estão geocodificados!', 'info');
       return;
     }
 
+    if (geocodeAbortRef.current) {
+      geocodeAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    geocodeAbortRef.current = controller;
+    const sessionId = routeSessionRef.current;
+
     setIsGeocoding(true);
     setGeocodingProgress({ current: 0, total: failedAddresses.length, currentAddress: null });
 
     try {
-      const geocodedFailed = await geocodeAddresses(failedAddresses, (current, total, currentAddress) => {
-        setGeocodingProgress({ current, total, currentAddress });
-      });
+      const geocodedFailed = await geocodeAddresses(
+        failedAddresses,
+        (current, total, currentAddress) => {
+          if (sessionId === routeSessionRef.current) {
+            setGeocodingProgress({ current, total, currentAddress });
+          }
+        },
+        controller.signal
+      );
+
+      if (sessionId !== routeSessionRef.current || controller.signal.aborted) {
+        return;
+      }
 
       setAddresses(prev => prev.map(addr => {
+        if (addr.isManuallyAdjusted) return addr;
         const updated = geocodedFailed.find(g => g.originalRow === addr.originalRow);
         return updated || addr;
       }));
       setGeocodingProgress(null);
       showNotification('Geocodificação concluída!', 'success');
     } catch (err) {
-      showNotification('Erro ao reprocessar: ' + err.message, 'error');
-      setGeocodingProgress(null);
+      if (sessionId === routeSessionRef.current) {
+        showNotification('Erro ao reprocessar: ' + err.message, 'error');
+        setGeocodingProgress(null);
+      }
     } finally {
-      setIsGeocoding(false);
+      if (sessionId === routeSessionRef.current) {
+        setIsGeocoding(false);
+      }
     }
   }, [addresses, showNotification]);
 
@@ -216,9 +586,9 @@ function App() {
           u.id
             ? q.id === u.id
             : ((u.rawNumber && q.rawNumber === u.rawNumber) ||
-               (u.number && q.number === u.number)) &&
-              Math.abs(q.lat - u.lat) < 0.006 &&
-              Math.abs(q.lng - u.lng) < 0.006
+              (u.number && q.number === u.number)) &&
+            Math.abs(q.lat - u.lat) < 0.006 &&
+            Math.abs(q.lng - u.lng) < 0.006
         );
         return matched ? { ...q, lat: matched.lat, lng: matched.lng } : q;
       })
@@ -391,16 +761,6 @@ function App() {
     }
   }, [showNotification]);
 
-  const handleClearRoute = () => {
-    if (window.confirm('Deseja realmente limpar a rota atual e começar de novo?')) {
-      setAddresses([]);
-      setSelectedId(null);
-      setGeocodingProgress(null);
-      setActiveTab('upload');
-      showNotification('Rota limpa com sucesso.', 'info');
-    }
-  };
-
   return (
     <div className="app-root">
       {/* Top Navbar */}
@@ -427,12 +787,23 @@ function App() {
         {addresses.length > 0 && (
           <div className="topbar-route-summary">
             <div className="summary-pill">
-              <span className="summary-num">{addresses.length}</span>
-              <span className="summary-lbl">paradas</span>
+              <span className="summary-num">{pendingAddresses.length}</span>
+              <span className="summary-lbl">pendentes</span>
             </div>
+            {deliveredAddresses.length > 0 && (
+              <button
+                type="button"
+                className="summary-pill delivered clickable"
+                onClick={() => setActiveTab('history')}
+                title="Abrir tabela de histórico de entregas concluídas"
+              >
+                <span className="summary-num">{deliveredAddresses.length}</span>
+                <span className="summary-lbl">entregues</span>
+              </button>
+            )}
             <div className="summary-pill success">
-              <span className="summary-num">{addresses.filter(a => a.coordinates).length}</span>
-              <span className="summary-lbl">no mapa</span>
+              <span className="summary-num">{groupedStops.length}</span>
+              <span className="summary-lbl">pinos no mapa</span>
             </div>
             {addresses.some(a => a.quadra || a.lote) && (
               <div className="summary-pill quadra">
@@ -449,14 +820,14 @@ function App() {
             <button
               type="button"
               className="btn-topbar-action danger"
-              onClick={handleClearRoute}
-              title="Limpar rota atual"
+              onClick={handleRemoveSpreadsheet}
+              title="Remover planilha importada e limpar rota atual"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
               </svg>
-              <span>Nova Rota</span>
+              <span>Remover Planilha</span>
             </button>
           )}
 
@@ -479,15 +850,30 @@ function App() {
           onClick={() => setMobileView('map')}
         >
           <span className="tab-icon">🗺️</span>
-          <span>Mapa {addresses.length > 0 ? `(${addresses.filter(a => a.coordinates).length})` : ''}</span>
+          <span>Mapa {groupedStops.length > 0 ? `(${groupedStops.length})` : ''}</span>
         </button>
         <button
-          className={`mobile-tab-btn ${mobileView === 'sidebar' ? 'active' : ''}`}
-          onClick={() => setMobileView('sidebar')}
+          className={`mobile-tab-btn ${mobileView === 'sidebar' && activeTab !== 'history' ? 'active' : ''}`}
+          onClick={() => {
+            if (activeTab === 'history') setActiveTab('deliveries');
+            setMobileView('sidebar');
+          }}
         >
           <span className="tab-icon">📋</span>
-          <span>Entregas ({addresses.length})</span>
+          <span>Entregas ({pendingAddresses.length})</span>
         </button>
+        {addresses.length > 0 && (
+          <button
+            className={`mobile-tab-btn ${mobileView === 'sidebar' && activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('history');
+              setMobileView('sidebar');
+            }}
+          >
+            <span className="tab-icon">✅</span>
+            <span>Histórico ({deliveredAddresses.length})</span>
+          </button>
+        )}
       </div>
 
       {/* Notificação Toast */}
@@ -519,8 +905,18 @@ function App() {
               onClick={() => setActiveTab('deliveries')}
             >
               <span>📋 Entregas</span>
-              {addresses.length > 0 && (
-                <span className="tab-counter-badge">{addresses.length}</span>
+              {pendingAddresses.length > 0 && (
+                <span className="tab-counter-badge">{pendingAddresses.length}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              className={`sidebar-nav-tab ${activeTab === 'history' ? 'active' : ''}`}
+              onClick={() => setActiveTab('history')}
+            >
+              <span>✅ Histórico</span>
+              {deliveredAddresses.length > 0 && (
+                <span className="tab-counter-badge green">{deliveredAddresses.length}</span>
               )}
             </button>
             <button
@@ -535,22 +931,42 @@ function App() {
           {/* Conteúdo da Aba Ativa */}
           <div className="sidebar-tab-content">
             {activeTab === 'deliveries' && (
-              addresses.length > 0 ? (
+              pendingAddresses.length > 0 ? (
                 <AddressList
-                  addresses={addresses}
+                  addresses={pendingAddresses}
+                  totalPackages={addresses.length}
+                  deliveredCount={deliveredAddresses.length}
+                  groupedStops={groupedStops}
                   selectedId={selectedId}
                   onSelect={handleSelect}
                   onRemove={handleRemove}
                   onSelectQuadra={handleSelectQuadra}
+                  onConfirmDelivery={handleConfirmDelivery}
+                  onOpenHistory={() => setActiveTab('history')}
                   geocodingProgress={geocodingProgress}
+                  importedSpreadsheet={importedSpreadsheet}
+                  onRemoveSpreadsheet={handleRemoveSpreadsheet}
                 />
+              ) : addresses.length > 0 ? (
+                <div className="empty-deliveries-state">
+                  <div className="empty-state-icon">🎉</div>
+                  <h4>Todas as {addresses.length} entregas foram concluídas!</h4>
+                  <p>Todos os pacotes da rota atual estão confirmados e listados no Histórico ao lado.</p>
+                  <button
+                    type="button"
+                    className="btn-go-import success"
+                    onClick={() => setActiveTab('history')}
+                  >
+                    Ver Histórico ({deliveredAddresses.length}) ➔
+                  </button>
+                </div>
               ) : (
                 <div className="empty-deliveries-state">
                   <div className="empty-state-icon">📋</div>
                   <h4>Nenhuma entrega carregada</h4>
                   <p>As {quadras.length} quadras de Itaipuaçu já estão ativas no mapa ao lado! Importe uma planilha para traçar sua rota.</p>
-                  <button 
-                    className="btn-go-import" 
+                  <button
+                    className="btn-go-import"
                     onClick={() => setActiveTab('upload')}
                   >
                     Importar Planilha de Entregas ➔
@@ -559,23 +975,38 @@ function App() {
               )
             )}
 
+            {activeTab === 'history' && (
+              <DeliveryHistory
+                deliveredAddresses={deliveredAddresses}
+                totalAddresses={addresses.length}
+                groupedStops={groupedStops}
+                selectedId={selectedId}
+                onSelect={handleSelect}
+                onSelectQuadra={handleSelectQuadra}
+                onConfirmDelivery={handleConfirmDelivery}
+                onOpenDeliveries={() => setActiveTab('deliveries')}
+              />
+            )}
+
             {activeTab === 'upload' && (
               <FileUpload
                 onAddressesLoaded={handleAddressesLoaded}
                 onError={handleFileError}
+                importedSpreadsheet={importedSpreadsheet}
+                onRemoveSpreadsheet={handleRemoveSpreadsheet}
               />
             )}
           </div>
 
           {/* Rodapé do Painel (Reprocessar / Cache) */}
-          {activeTab === 'deliveries' && addresses.length > 0 && addresses.some(a => !a.coordinates) && (
+          {activeTab === 'deliveries' && pendingAddresses.length > 0 && pendingAddresses.some(a => !a.coordinates) && (
             <div className="sidebar-docked-footer">
               <button
                 className="btn-docked-footer"
                 onClick={handleRetryGeocoding}
                 disabled={isGeocoding}
               >
-                🔄 Reprocessar pendentes ({addresses.filter(a => !a.coordinates).length})
+                🔄 Reprocessar pendentes ({pendingAddresses.filter(a => !a.coordinates).length})
               </button>
               <button
                 className="btn-docked-footer secondary"
@@ -595,6 +1026,8 @@ function App() {
         <section className="workspace-map-section">
           <MapView
             addresses={addresses}
+            groupedStops={groupedStops}
+            routeVersion={routeVersion}
             selectedId={selectedId}
             onSelect={handleSelect}
             center={mapCenter}
@@ -603,6 +1036,9 @@ function App() {
             onUpdateQuadra={handleUpdateQuadra}
             onAddQuadra={handleAddQuadra}
             onDeleteQuadra={handleDeleteQuadra}
+            onUpdateAddress={handleUpdateAddress}
+            onConfirmDelivery={handleConfirmDelivery}
+            quadraHighlightRequest={quadraHighlightRequest}
           />
         </section>
       </main>

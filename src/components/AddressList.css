@@ -73,6 +73,26 @@
   border: 1px solid #bbf7d0;
 }
 
+.badge-pins {
+  background: #ede9fe;
+  color: #6d28d9;
+  border: 1px solid #ddd6fe;
+}
+
+.badge-history-link {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #6ee7b7;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.badge-history-link:hover {
+  background: #d1fae5;
+  border-color: #10b981;
+}
+
 .badge-warning {
   background: #fef3c7;
   color: #b45309;
@@ -429,6 +449,31 @@
   border-radius: 4px;
 }
 
+.pill-adjusted {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #047857;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.pill-group-pin {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #6d28d9;
+  background: #ede9fe;
+  border: 1px solid #c4b5fd;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pill-group-pin:hover {
+  background: #ddd6fe;
+}
+
 .location-line {
   font-size: 11px;
   color: #64748b;
@@ -481,8 +526,67 @@
   border-color: #cbd5e1;
 }
 
+.btn-card-icon.confirm {
+  color: #059669;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  font-weight: 800;
+}
+
+.btn-card-icon.confirm:hover {
+  background: #10b981;
+  color: #ffffff;
+  border-color: #059669;
+}
+
 .btn-card-icon.danger:hover {
   background: #fee2e2;
   color: #dc2626;
   border-color: #fca5a5;
+}
+
+/* Barra da Planilha Importada no Cabeçalho das Entregas */
+.list-spreadsheet-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.list-spreadsheet-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.btn-remove-imported-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.btn-remove-imported-list:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
 }

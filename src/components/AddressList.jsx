@@ -3,11 +3,18 @@ import './AddressList.css';
 
 export default function AddressList({ 
   addresses, 
+  totalPackages = 0,
+  deliveredCount = 0,
+  groupedStops = [],
   selectedId, 
   onSelect, 
   onRemove,
   onSelectQuadra,
-  geocodingProgress 
+  onConfirmDelivery,
+  onOpenHistory,
+  geocodingProgress,
+  importedSpreadsheet = null,
+  onRemoveSpreadsheet,
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -30,7 +37,10 @@ export default function AddressList({
 
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase().trim();
-      result = result.filter(addr => 
+      const numericSearch = term.replace(/^#/, '');
+      result = result.filter(addr =>
+        String(addr.originalRow || '') === numericSearch ||
+        `#${addr.originalRow}`.includes(term) ||
         (addr.street && addr.street.toLowerCase().includes(term)) ||
         (addr.recipient && addr.recipient.toLowerCase().includes(term)) ||
         (addr.neighborhood && addr.neighborhood.toLowerCase().includes(term)) ||
@@ -77,13 +87,25 @@ export default function AddressList({
     return result;
   }, [addresses, searchTerm, filterStatus, sortBy]);
 
+  const groupByRow = useMemo(() => {
+    const map = new Map();
+    for (const g of groupedStops) {
+      for (const r of g.rowIds) {
+        map.set(r, g);
+      }
+    }
+    return map;
+  }, [groupedStops]);
+
   const stats = useMemo(() => ({
     total: addresses.length,
+    totalAll: totalPackages || addresses.length + deliveredCount,
     geocoded: addresses.filter(a => a.geocoded).length,
+    uniquePins: groupedStops.filter(g => !g.isDelivered).length,
     pending: addresses.filter(a => !a.geocoded && !a.error).length,
     error: addresses.filter(a => Boolean(a.error)).length,
     quadraLote: addresses.filter(a => Boolean(a.quadra || a.lote)).length,
-  }), [addresses]);
+  }), [addresses, groupedStops, totalPackages, deliveredCount]);
 
   const handleCopyAddress = (e, addr) => {
     e.stopPropagation();
@@ -103,9 +125,24 @@ export default function AddressList({
             <span className="count-pill">{stats.total}</span>
           </div>
           <div className="stats-badges-row">
-            <span className="badge badge-success" title="Com coordenadas no mapa">
-              ✓ {stats.geocoded} no mapa
+            <span className="badge badge-success" title="Pacotes pendentes com coordenadas no mapa">
+              ✓ {stats.geocoded} pendentes
             </span>
+            {stats.uniquePins > 0 && stats.uniquePins < stats.geocoded && (
+              <span className="badge badge-pins" title="Endereços ativos agrupados no mapa">
+                📍 {stats.uniquePins} pinos
+              </span>
+            )}
+            {deliveredCount > 0 && (
+              <button
+                type="button"
+                className="badge badge-history-link"
+                onClick={onOpenHistory}
+                title="Abrir tabela de Histórico de Entregas"
+              >
+                ✅ {deliveredCount} entregues ↗
+              </button>
+            )}
             {stats.pending > 0 && (
               <span className="badge badge-warning" title="Aguardando geocodificação">
                 ⏳ {stats.pending}
@@ -119,19 +156,40 @@ export default function AddressList({
           </div>
         </div>
 
+        {/* Barra da Planilha Importada com Botão de Remover */}
+        {onRemoveSpreadsheet && (
+          <div className="list-spreadsheet-bar">
+            <span className="list-spreadsheet-name" title={importedSpreadsheet?.name || 'Planilha importada'}>
+              📄 {importedSpreadsheet?.name || 'Planilha importada'}
+            </span>
+            <button
+              type="button"
+              className="btn-remove-imported-list"
+              onClick={onRemoveSpreadsheet}
+              title="Remover planilha importada e limpar todas as paradas do mapa"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+              <span>Remover Planilha</span>
+            </button>
+          </div>
+        )}
+
         {/* Barra de Progresso de Geocodificação */}
         {geocodingProgress && (
           <div className="geocoding-progress-bar">
             <div className="progress-track">
-              <div 
-                className="progress-fill-bar" 
+              <div
+                className="progress-fill-bar"
                 style={{ width: `${Math.min(100, Math.round((geocodingProgress.current / (geocodingProgress.total || 1)) * 100))}%` }}
               />
             </div>
             <div className="progress-label-row">
               <span className="spinner-mini"></span>
               <span>
-                Geocodificando {geocodingProgress.current}/{geocodingProgress.total} 
+                Geocodificando {geocodingProgress.current}/{geocodingProgress.total}
                 ({Math.round((geocodingProgress.current / (geocodingProgress.total || 1)) * 100)}%)
               </span>
             </div>
@@ -152,9 +210,9 @@ export default function AddressList({
               onChange={(e) => setSearchTerm(e.target.value)}
             />
             {searchTerm && (
-              <button 
-                type="button" 
-                className="btn-clear-search" 
+              <button
+                type="button"
+                className="btn-clear-search"
                 onClick={() => setSearchTerm('')}
                 title="Limpar busca"
               >
@@ -196,10 +254,10 @@ export default function AddressList({
                 Erros ({stats.error})
               </button>
             )}
-            
+
             <div className="sort-wrapper">
-              <select 
-                value={sortBy} 
+              <select
+                value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
                 className="sort-select"
                 title="Ordenar lista"
@@ -233,6 +291,8 @@ export default function AddressList({
         ) : (
           filteredAddresses.map((address, idx) => {
             const isSelected = selectedId === address.originalRow;
+            const pinGroup = groupByRow.get(address.originalRow);
+            const hasMultiPackages = Boolean(pinGroup && pinGroup.packageCount > 1);
             return (
               <div
                 key={`addr-${address.originalRow}-${idx}`}
@@ -264,10 +324,22 @@ export default function AddressList({
                     {address.number ? `, Nº ${address.number}` : ''}
                   </div>
 
-                  {(address.quadra || address.lote) && (
+                  {(address.quadra || address.lote || address.isManuallyAdjusted || hasMultiPackages) && (
                     <div className="quadra-lote-pills">
+                      {hasMultiPackages && (
+                        <span
+                          className="pill-group-pin"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelect(address.originalRow);
+                          }}
+                          title={`Mesmo endereço agrupado no pino #${pinGroup.stopNumber} (${pinGroup.packageCount} pacotes)`}
+                        >
+                          📦 Pino #{pinGroup.stopNumber} ({pinGroup.packageCount} pct)
+                        </span>
+                      )}
                       {address.quadra && (
-                        <span 
+                        <span
                           className="pill-quadra clickable"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -280,6 +352,11 @@ export default function AddressList({
                       )}
                       {address.lote && (
                         <span className="pill-lote">Lote {address.lote}</span>
+                      )}
+                      {address.isManuallyAdjusted && (
+                        <span className="pill-adjusted" title="Posição ajustada manualmente no mapa">
+                          📌 Posição editada
+                        </span>
                       )}
                     </div>
                   )}
@@ -297,6 +374,20 @@ export default function AddressList({
 
                 {/* Ações Rápidas */}
                 <div className="address-actions-col">
+                  {onConfirmDelivery && (
+                    <button
+                      type="button"
+                      className="btn-card-icon confirm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onConfirmDelivery(address.originalRow, true);
+                      }}
+                      title="Confirmar entrega deste pacote e mover para Histórico"
+                    >
+                      ✓
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className="btn-card-icon"
@@ -317,14 +408,12 @@ export default function AddressList({
 
                   {address.coordinates && (
                     <a
-                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                        `${address.street || ''} ${address.number || ''}, ${address.city || 'Maricá'}, RJ`
-                      )}`}
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${address.coordinates.lat},${address.coordinates.lng}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn-card-icon"
                       onClick={(e) => e.stopPropagation()}
-                      title="Abrir no Google Maps"
+                      title="Abrir rota exata no Google Maps"
                     >
                       ↗
                     </a>

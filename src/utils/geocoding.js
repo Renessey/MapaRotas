@@ -123,7 +123,7 @@ async function fetchFromNominatim(query, retries = 2) {
 
 async function geocodeAddress(address) {
   const cacheKey = address.fullAddress || `${address.street}-${address.number}-${address.zipCode}`;
-  
+
   if (cache.has(cacheKey)) {
     return cache.get(cacheKey);
   }
@@ -164,13 +164,14 @@ async function geocodeAddress(address) {
   return null;
 }
 
-export async function geocodeAddresses(addresses, onProgress) {
+export async function geocodeAddresses(addresses, onProgress, signal = null) {
   const results = [];
   const total = addresses.length;
-  
+
   for (let i = 0; i < total; i++) {
+    if (signal?.aborted) break;
     const address = addresses[i];
-    
+
     // Se o endereço já tiver coordenadas válidas, pula requisição
     if (address.coordinates && typeof address.coordinates.lat === 'number' && typeof address.coordinates.lng === 'number') {
       results.push({
@@ -183,6 +184,7 @@ export async function geocodeAddresses(addresses, onProgress) {
 
     try {
       const coords = await geocodeAddress(address);
+      if (signal?.aborted) break;
       results.push({
         ...address,
         coordinates: coords,
@@ -190,6 +192,7 @@ export async function geocodeAddresses(addresses, onProgress) {
         error: coords ? null : 'Endereço não localizado',
       });
     } catch (error) {
+      if (signal?.aborted) break;
       results.push({
         ...address,
         coordinates: null,
@@ -197,16 +200,16 @@ export async function geocodeAddresses(addresses, onProgress) {
         error: error.message || 'Erro de conexão na geocodificação',
       });
     }
-    
-    if (onProgress) {
+
+    if (onProgress && !signal?.aborted) {
       onProgress(i + 1, total, address);
     }
-    
-    if (i < total - 1) {
+
+    if (i < total - 1 && !signal?.aborted) {
       await new Promise(resolve => setTimeout(resolve, 600));
     }
   }
-  
+
   return results;
 }
 
