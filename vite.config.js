@@ -3,9 +3,56 @@ import { defineConfig } from 'vite'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { DatabaseSync } from 'node:sqlite'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+const dbPath = path.resolve(__dirname, 'src/data/quadras.db')
+const jsonPath = path.resolve(__dirname, 'src/data/itaipuacuQuadras.json')
+
+let sqliteDb = null
+
+function getDatabase() {
+  if (sqliteDb) return sqliteDb
+  try {
+    sqliteDb = new DatabaseSync(dbPath)
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS quadras (
+        id TEXT PRIMARY KEY,
+        number TEXT,
+        rawNumber TEXT,
+        lat REAL NOT NULL,
+        lng REAL NOT NULL,
+        x REAL,
+        y REAL
+      );
+      CREATE INDEX IF NOT EXISTS idx_quadras_coords ON quadras(lat, lng);
+    `)
+
+    const countRow = sqliteDb.prepare('SELECT count(*) as total FROM quadras').get()
+    if (!countRow || countRow.total === 0) {
+      if (fs.existsSync(jsonPath)) {
+        const raw = fs.readFileSync(jsonPath, 'utf8')
+        const items = JSON.parse(raw)
+        const insertStmt = sqliteDb.prepare(`
+          INSERT OR REPLACE INTO quadras (id, number, rawNumber, lat, lng, x, y)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        sqliteDb.exec('BEGIN TRANSACTION;')
+        for (const q of items) {
+          const num = formatQuadraNumber(q.rawNumber || q.number)
+          const qId = q.id || `${num}-${Math.round(q.lat * 100000)}-${Math.round(q.lng * 100000)}`
+          insertStmt.run(qId, num, num, Number(Number(q.lat).toFixed(6)), Number(Number(q.lng).toFixed(6)), q.x || null, q.y || null)
+        }
+        sqliteDb.exec('COMMIT;')
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao inicializar banco SQLite de quadras:', err)
+  }
+  return sqliteDb
+}
 
 function formatQuadraNumber(str) {
   if (!str) return ''
@@ -42,7 +89,83 @@ export default defineConfig({
         }
       },
       configureServer(server) {
-        // Grava o conjunto completo de quadras ativas da tela do PC direto no arquivo físico
+        // Consulta pontos filtrados por Bounding Box no SQLite com índice composto (lat, lng)
+        server.middlewares.use('/api/pontos', (req, res, next) => {
+          if (req.method === 'GET' || req.method === 'POST') {
+            const handleQuery = (params) => {
+              try {
+                const db = getDatabase()
+                if (!db) {
+                  res.statusCode = 500
+                  res.setHeader('Content-Type', 'application/json')
+                  res.end(JSON.stringify({ error: 'Banco SQLite indisponível' }))
+                  return
+                }
+
+                const norte = parseFloat(params.norte ?? params.north)
+                const sul = parseFloat(params.sul ?? params.south)
+                const leste = parseFloat(params.leste ?? params.east)
+                const oeste = parseFloat(params.oeste ?? params.west)
+                const limit = Math.min(Math.max(parseInt(params.limit || '1200', 10), 1), 3000)
+
+                let rows = []
+                if (!isNaN(norte) && !isNaN(sul) && !isNaN(leste) && !isNaN(oeste)) {
+                  const minLat = Math.min(sul, norte)
+                  const maxLat = Math.max(sul, norte)
+                  const minLng = Math.min(oeste, leste)
+                  const maxLng = Math.max(oeste, leste)
+
+                  const stmt = db.prepare(`
+                    SELECT id, number, rawNumber, lat, lng, x, y
+                    FROM quadras
+                    WHERE lat BETWEEN ? AND ?
+                      AND lng BETWEEN ? AND ?
+                    LIMIT ?
+                  `)
+                  rows = stmt.all(minLat, maxLat, minLng, maxLng, limit)
+                } else {
+                  const stmt = db.prepare(`
+                    SELECT id, number, rawNumber, lat, lng, x, y
+                    FROM quadras
+                    LIMIT ?
+                  `)
+                  rows = stmt.all(limit)
+                }
+
+                res.setHeader('Content-Type', 'application/json')
+                res.end(JSON.stringify({ success: true, count: rows.length, quadras: rows }))
+              } catch (err) {
+                res.statusCode = 500
+                res.setHeader('Content-Type', 'application/json')
+                res.end(JSON.stringify({ error: err.message }))
+              }
+            }
+
+            if (req.method === 'GET') {
+              const url = new URL(req.url, 'http://localhost')
+              const params = Object.fromEntries(url.searchParams.entries())
+              handleQuery(params)
+              return
+            }
+
+            if (req.method === 'POST') {
+              let body = ''
+              req.on('data', (chunk) => { body += chunk })
+              req.on('end', () => {
+                try {
+                  const params = JSON.parse(body || '{}')
+                  handleQuery(params)
+                } catch {
+                  handleQuery({})
+                }
+              })
+              return
+            }
+          }
+          next()
+        })
+
+        // Grava o conjunto completo de quadras ativas da tela do PC direto no arquivo físico e no SQLite
         server.middlewares.use('/api/sync-all-quadras', (req, res, next) => {
           if (req.method === 'POST') {
             let body = ''
@@ -57,6 +180,32 @@ export default defineConfig({
                   lastApiWriteTime = Date.now()
                   const jsonStr = JSON.stringify(payload.quadras, null, 2)
                   fs.writeFileSync(filePath, jsonStr, 'utf8')
+
+                  // Sincroniza em transação atômica no SQLite
+                  const db = getDatabase()
+                  if (db) {
+                    const insertStmt = db.prepare(`
+                      INSERT OR REPLACE INTO quadras (id, number, rawNumber, lat, lng, x, y)
+                      VALUES (?, ?, ?, ?, ?, ?, ?)
+                    `)
+                    db.exec('BEGIN TRANSACTION;')
+                    db.exec('DELETE FROM quadras;')
+                    for (const q of payload.quadras) {
+                      const formatted = formatQuadraNumber(q.rawNumber || q.number)
+                      const qId = q.id || `${formatted}-${Math.round(q.lat * 100000)}-${Math.round(q.lng * 100000)}`
+                      insertStmt.run(
+                        qId,
+                        formatted,
+                        formatted,
+                        Number(Number(q.lat).toFixed(6)),
+                        Number(Number(q.lng).toFixed(6)),
+                        q.x || null,
+                        q.y || null
+                      )
+                    }
+                    db.exec('COMMIT;')
+                  }
+
                   res.setHeader('Content-Type', 'application/json')
                   res.end(JSON.stringify({ success: true, count: payload.quadras.length }))
                   return
@@ -132,6 +281,35 @@ export default defineConfig({
                 const jsonStr = JSON.stringify(data, null, 2)
                 fs.writeFileSync(filePath, jsonStr, 'utf8')
 
+                // Sincroniza também no banco SQLite
+                const db = getDatabase()
+                if (db) {
+                  const upsertStmt = db.prepare(`
+                    INSERT INTO quadras (id, number, rawNumber, lat, lng, x, y)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                      number = excluded.number,
+                      rawNumber = excluded.rawNumber,
+                      lat = excluded.lat,
+                      lng = excluded.lng,
+                      x = excluded.x,
+                      y = excluded.y
+                  `)
+                  db.exec('BEGIN TRANSACTION;')
+                  for (const item of results) {
+                    upsertStmt.run(
+                      item.id,
+                      item.number,
+                      item.rawNumber,
+                      item.lat,
+                      item.lng,
+                      item.x || null,
+                      item.y || null
+                    )
+                  }
+                  db.exec('COMMIT;')
+                }
+
                 res.setHeader('Content-Type', 'application/json')
                 res.end(
                   JSON.stringify({
@@ -185,6 +363,12 @@ export default defineConfig({
 
                   const jsonStr = JSON.stringify(data, null, 2)
                   fs.writeFileSync(filePath, jsonStr, 'utf8')
+
+                  // Remove também no banco SQLite
+                  const db = getDatabase()
+                  if (db && deleted) {
+                    db.prepare('DELETE FROM quadras WHERE id = ? OR (lat = ? AND lng = ?)').run(deleted.id, deleted.lat, deleted.lng)
+                  }
 
                   res.setHeader('Content-Type', 'application/json')
                   res.end(JSON.stringify({ success: true, deleted, total: data.length }))

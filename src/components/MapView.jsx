@@ -376,6 +376,80 @@ function buildCleanQuadras(quadras) {
   return result;
 }
 
+// Renderizador Canvas de alta performance na GPU para as quadras (Canvas L.circleMarker elimina engasgos)
+const QuadraCanvasRenderer = L.Canvas.extend({
+  _updateCircle: function (layer) {
+    if (!this._drawing || layer._empty()) return;
+    const p = layer._point;
+    const ctx = this._ctx;
+
+    if (layer.options && layer.options.quadraLabel) {
+      const text = String(layer.options.quadraLabel);
+      const isDelivery = Boolean(layer.options.hasDelivery);
+      const isHighlight = Boolean(layer.options.isHighlighted);
+      const isPending = Boolean(layer.options.isPendingSave);
+      const isSelected = Boolean(layer.options.isSelected);
+
+      ctx.save();
+      ctx.font = '800 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace';
+      const textWidth = ctx.measureText(text).width;
+      const w = Math.max(textWidth + 10, 22);
+      const h = 18;
+      const x = p.x - w / 2;
+      const y = p.y - h / 2;
+      const r = 4;
+
+      // Desenha o badge com cantos arredondados
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x, y, w, h, r);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
+
+      if (isPending) {
+        ctx.fillStyle = '#dc2626';
+        ctx.strokeStyle = '#991b1b';
+        ctx.lineWidth = 2;
+      } else if (isDelivery) {
+        ctx.fillStyle = '#f97316';
+        ctx.strokeStyle = '#c2410c';
+        ctx.lineWidth = 2;
+      } else if (isHighlight || isSelected) {
+        ctx.fillStyle = '#7c3aed';
+        ctx.strokeStyle = '#5b21b6';
+        ctx.lineWidth = 2;
+      } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+        ctx.strokeStyle = '#16a34a';
+        ctx.lineWidth = 1.5;
+      }
+
+      ctx.fill();
+      ctx.stroke();
+
+      // Número da quadra
+      ctx.fillStyle = (isPending || isDelivery || isHighlight || isSelected) ? '#ffffff' : '#15803d';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, p.x, p.y + 0.5);
+
+      // Ponto indicador de entregas
+      if (isDelivery) {
+        ctx.beginPath();
+        ctx.arc(p.x + w / 2 - 3, y + 3, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+      }
+
+      ctx.restore();
+      return;
+    }
+
+    L.Canvas.prototype._updateCircle.call(this, layer);
+  },
+});
+
 // Renderiza as Quadras de Itaipuaçu via camada Leaflet nativa com diff incremental (60 FPS + 100% da tela visível)
 function QuadraLayer({
   quadras,
@@ -404,6 +478,46 @@ function QuadraLayer({
   const [clickedQuadraState, setClickedQuadraState] = useState(null);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [bboxQuadras, setBboxQuadras] = useState(null);
+
+  const canvasRenderer = useMemo(() => new QuadraCanvasRenderer({ padding: 0.5 }), []);
+  const abortControllerRef = useRef(null);
+
+  // Consulta dinâmica ao endpoint /api/pontos baseado no Bounding Box atual da tela
+  const fetchBBoxPoints = useCallback(() => {
+    if (!map) return;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const bounds = map.getBounds().pad(0.35);
+    const norte = Number(bounds.getNorth().toFixed(6));
+    const sul = Number(bounds.getSouth().toFixed(6));
+    const leste = Number(bounds.getEast().toFixed(6));
+    const oeste = Number(bounds.getWest().toFixed(6));
+
+    fetch(`/api/pontos?norte=${norte}&sul=${sul}&leste=${leste}&oeste=${oeste}&limit=1500`, {
+      signal: controller.signal,
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && Array.isArray(data.quadras)) {
+          setBboxQuadras(data.quadras);
+        }
+      })
+      .catch((err) => {
+        if (err.name !== 'AbortError') {
+          console.warn('Erro ao carregar pontos BBox SQLite:', err);
+        }
+      });
+  }, [map]);
+
+  // Carga inicial
+  useEffect(() => {
+    fetchBBoxPoints();
+  }, [fetchBBoxPoints]);
 
   const layerGroupRef = useRef(null);
   const markersMapRef = useRef(new Map());
@@ -427,11 +541,29 @@ function QuadraLayer({
     onDragActiveChange,
   });
 
-  // Deduplicação O(N) feita apenas quando a lista base de quadras muda
-  const baseCleanQuadras = useMemo(
-    () => (cleanQuadrasBase ? cleanQuadrasBase : buildCleanQuadras(quadras)),
-    [cleanQuadrasBase, quadras]
-  );
+  // Base de quadras: prioriza os pontos dinâmicos carregados por Bounding Box do SQLite,
+  // garantindo que entregas ativas fora do viewport também estejam sempre visíveis.
+  const baseCleanQuadras = useMemo(() => {
+    if (bboxQuadras && bboxQuadras.length > 0) {
+      const merged = [...bboxQuadras];
+      if (cleanQuadrasBase && deliveryQuadrasMap && deliveryQuadrasMap.size > 0) {
+        const bboxKeys = new Set(
+          bboxQuadras.map((q) => q.id || `${q.rawNumber || q.number}-${q.lat}-${q.lng}`)
+        );
+        for (const baseQ of cleanQuadrasBase) {
+          const hasDelivery =
+            deliveryQuadrasMap.has(baseQ._numInt) ||
+            deliveryQuadrasMap.has(baseQ.rawNumber) ||
+            deliveryQuadrasMap.has(baseQ._label);
+          if (hasDelivery && !bboxKeys.has(baseQ._key) && !bboxKeys.has(baseQ.id)) {
+            merged.push(baseQ);
+          }
+        }
+      }
+      return buildCleanQuadras(merged);
+    }
+    return cleanQuadrasBase ? cleanQuadrasBase : buildCleanQuadras(quadras);
+  }, [bboxQuadras, cleanQuadrasBase, quadras, deliveryQuadrasMap]);
 
   // Sobrepõe coordenadas temporárias arrastadas enquanto aguardam clique em "Salvar no JSON"
   const cleanQuadras = useMemo(() => {
@@ -524,43 +656,117 @@ function QuadraLayer({
       if (existing) {
         existing.quadra = q;
 
-        if (!isActivelyDragging && (existing.lat !== q.lat || existing.lng !== q.lng)) {
-          existing.marker.setLatLng([q.lat, q.lng]);
-          existing.lat = q.lat;
-          existing.lng = q.lng;
-        }
-
-        // Nunca recria o DOM do ícone durante drag ativo (preserva captura de mouse/toque no Leaflet)
-        if (!isActivelyDragging && existing.iconKey !== iconKey) {
-          existing.marker.setIcon(
-            getCachedQuadraIcon(q, item.hasDelivery, item.isHighlighted, isDraggable, isPendingSave)
-          );
-          existing.iconKey = iconKey;
-        }
-
-        const el = existing.marker.getElement();
-        if (el) {
-          el.classList.toggle('is-dragging-red', Boolean(isActivelyDragging || isPendingSave));
-        }
-
-        if (!isActivelyDragging && existing.draggable !== isDraggable) {
-          existing.marker.options.draggable = isDraggable;
-          if (existing.marker.dragging) {
-            if (isDraggable) existing.marker.dragging.enable();
-            else existing.marker.dragging.disable();
+        // Se o modo de arrasto mudou entre Canvas e DOM, recria o marcador
+        if (existing.isDraggable !== isDraggable) {
+          layerGroup.removeLayer(existing.marker);
+          existingMap.delete(key);
+        } else {
+          if (!isActivelyDragging && (existing.lat !== q.lat || existing.lng !== q.lng)) {
+            existing.marker.setLatLng([q.lat, q.lng]);
+            existing.lat = q.lat;
+            existing.lng = q.lng;
           }
-          existing.draggable = isDraggable;
-        }
 
-        if (existing.zOffset !== zOffset) {
-          existing.marker.setZIndexOffset(zOffset);
-          existing.zOffset = zOffset;
+          if (!isDraggable) {
+            // Atualiza propriedades do L.circleMarker no Canvas
+            const cm = existing.marker;
+            let redraw = false;
+            if (cm.options.hasDelivery !== item.hasDelivery) {
+              cm.options.hasDelivery = item.hasDelivery;
+              redraw = true;
+            }
+            if (cm.options.isHighlighted !== item.isHighlighted) {
+              cm.options.isHighlighted = item.isHighlighted;
+              redraw = true;
+            }
+            if (cm.options.isSelected !== item.isSelected) {
+              cm.options.isSelected = item.isSelected;
+              redraw = true;
+            }
+            if (cm.options.isPendingSave !== isPendingSave) {
+              cm.options.isPendingSave = isPendingSave;
+              redraw = true;
+            }
+            if (redraw) {
+              cm.redraw();
+            }
+          } else {
+            // Marcador DOM arrastável
+            if (!isActivelyDragging && existing.iconKey !== iconKey) {
+              existing.marker.setIcon(
+                getCachedQuadraIcon(q, item.hasDelivery, item.isHighlighted, isDraggable, isPendingSave)
+              );
+              existing.iconKey = iconKey;
+            }
+            const el = existing.marker.getElement();
+            if (el) {
+              el.classList.toggle('is-dragging-red', Boolean(isActivelyDragging || isPendingSave));
+            }
+            if (existing.zOffset !== zOffset) {
+              existing.marker.setZIndexOffset(zOffset);
+              existing.zOffset = zOffset;
+            }
+          }
+          continue;
         }
+      }
+
+      if (!isDraggable) {
+        // Marcador Canvas ultraleve via L.circleMarker (Zero nós DOM no mapa!)
+        const circleMarker = L.circleMarker([q.lat, q.lng], {
+          renderer: canvasRenderer,
+          radius: 12,
+          quadraLabel: q._label,
+          hasDelivery: item.hasDelivery,
+          isHighlighted: item.isHighlighted,
+          isSelected: item.isSelected,
+          isPendingSave: isPendingSave,
+        });
+
+        circleMarker._containsPoint = function (p) {
+          const w = Math.max((this.options.quadraLabel ? String(this.options.quadraLabel).length : 2) * 8 + 10, 24);
+          const h = 20;
+          return (
+            Math.abs(p.x - this._point.x) <= w / 2 + 4 &&
+            Math.abs(p.y - this._point.y) <= h / 2 + 4
+          );
+        };
+
+        circleMarker.on('click', (e) => {
+          if (e && e.originalEvent) {
+            L.DomEvent.stopPropagation(e.originalEvent);
+          }
+          const latestState = stateRef.current;
+          const latestEntry = markersMapRef.current.get(key);
+          const latestQ = latestEntry ? latestEntry.quadra : q;
+
+          if (latestState.isAddingQuadra && latestState.onAddMapClick) {
+            latestState.onAddMapClick(e.latlng || circleMarker.getLatLng());
+            return;
+          }
+          if (!latestState.adjustMode) {
+            setConfirmDeleteKey(null);
+            setClickedQuadraState({ key, seq: latestState.searchSeq });
+            if (latestState.onSelectQuadra) latestState.onSelectQuadra(latestQ);
+          }
+        });
+
+        layerGroup.addLayer(circleMarker);
+        existingMap.set(key, {
+          marker: circleMarker,
+          iconKey,
+          isDraggable: false,
+          zOffset,
+          lat: q.lat,
+          lng: q.lng,
+          quadra: q,
+        });
       } else {
+        // Marcador DOM arrastável (Modo Ajustar ativo)
         const icon = getCachedQuadraIcon(q, item.hasDelivery, item.isHighlighted, isDraggable, isPendingSave);
         const marker = L.marker([q.lat, q.lng], {
           icon,
-          draggable: isDraggable,
+          draggable: true,
           autoPan: true,
           zIndexOffset: zOffset,
         });
@@ -577,7 +783,6 @@ function QuadraLayer({
             latestState.onAddMapClick(e.latlng || marker.getLatLng());
             return;
           }
-          // No modo arrastar ativo, não abre modal de informação para manter o mapa limpo
           if (!latestState.adjustMode) {
             setConfirmDeleteKey(null);
             setClickedQuadraState({ key, seq: latestState.searchSeq });
@@ -591,7 +796,6 @@ function QuadraLayer({
           if (el) el.classList.add('is-dragging-red');
           marker.setZIndexOffset(2500);
           setIsDragging(true);
-          // Fecha o popup imediatamente ao iniciar o arrasto para desobstruir a visão
           setClickedQuadraState(null);
           const entry = markersMapRef.current.get(key);
           const latestQ = entry ? entry.quadra : q;
@@ -635,7 +839,7 @@ function QuadraLayer({
         existingMap.set(key, {
           marker,
           iconKey,
-          draggable: isDraggable,
+          isDraggable: true,
           zOffset,
           lat: q.lat,
           lng: q.lng,
@@ -646,7 +850,7 @@ function QuadraLayer({
 
     lastRenderBoundsRef.current = paddedBounds;
     lastZoomRef.current = zoom;
-  }, [map]);
+  }, [map, canvasRenderer]);
 
   // Atualiza stateRef fora do render e re-sincroniza quando dados, filtros ou seleção mudarem
   useEffect(() => {
@@ -685,8 +889,12 @@ function QuadraLayer({
     isDragging,
   ]);
 
-  // Inicializa LayerGroup e hooks diretos de movimento/zoom no mapa
+  // Inicializa LayerGroup, CanvasRenderer e hooks diretos de movimento/zoom no mapa
   useEffect(() => {
+    const canvas = canvasRenderer;
+    if (canvas && !map.hasLayer(canvas)) {
+      canvas.addTo(map);
+    }
     const group = L.layerGroup().addTo(map);
     const markersMap = markersMapRef.current;
     layerGroupRef.current = group;
@@ -720,6 +928,7 @@ function QuadraLayer({
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
+      fetchBBoxPoints();
       syncMarkers();
     };
 
@@ -728,6 +937,7 @@ function QuadraLayer({
     map.on('zoomend', handleSettled);
     map.on('resize', handleSettled);
 
+    fetchBBoxPoints();
     syncMarkers();
 
     return () => {
@@ -747,8 +957,11 @@ function QuadraLayer({
       map.removeLayer(group);
       markersMap.clear();
       layerGroupRef.current = null;
+      if (canvas && map.hasLayer(canvas)) {
+        map.removeLayer(canvas);
+      }
     };
-  }, [map, syncMarkers]);
+  }, [map, syncMarkers, fetchBBoxPoints, canvasRenderer]);
 
   // Clique fora no fundo do mapa sai da seleção e do modo de arrastar
   useMapEvents({
