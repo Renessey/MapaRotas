@@ -81,6 +81,23 @@
   color: #15803d;
 }
 
+/* Botão "Só Ativas" — filtra quadras com entregas para reduzir lag */
+.only-active-quadras-btn {
+  gap: 4px;
+}
+
+.only-active-quadras-btn.active {
+  background: #fff7ed;
+  border-color: #ea580c;
+  color: #c2410c;
+  font-weight: 700;
+}
+
+.active-quadra-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
 .quadra-icon-badge {
   background: #16a34a;
   color: white;

@@ -242,10 +242,38 @@ function MapController({ center, zoom, addresses, routeVersion = 0, onMapReady }
 }
 
 // Seleciona todas as quadras da tela visível + margem de rolagem sem esconder blocos no zoom de trabalho
-function selectVisibleQuadras(map, cleanQuadras, deliveryQuadrasMap, highlightedQuadra, selectedKey) {
+function selectVisibleQuadras(map, cleanQuadras, deliveryQuadrasMap, highlightedQuadra, selectedKey, onlyActiveQuadras = false) {
   const zoom = map.getZoom();
   const viewBounds = map.getBounds();
   const center = map.getCenter();
+
+  // Modo desempenho máximo: exibe exclusivamente quadras ativas (com entregas), ocultando todas as outras
+  if (onlyActiveQuadras) {
+    const activeItems = [];
+    for (let i = 0; i < cleanQuadras.length; i++) {
+      const q = cleanQuadras[i];
+      const hasDelivery =
+        deliveryQuadrasMap.has(q._numInt) ||
+        deliveryQuadrasMap.has(q.rawNumber) ||
+        deliveryQuadrasMap.has(q._label);
+      const isHighlighted = Boolean(
+        highlightedQuadra &&
+        (highlightedQuadra === q.number ||
+          highlightedQuadra === q.rawNumber ||
+          highlightedQuadra === q._label)
+      );
+      const isSelected = Boolean(selectedKey && selectedKey === q._key);
+
+      if (hasDelivery || isHighlighted || isSelected || q.isPendingSave) {
+        activeItems.push({ q, hasDelivery, isHighlighted, isSelected, normDist: 0 });
+      }
+    }
+    return {
+      items: activeItems,
+      paddedBounds: viewBounds.pad(0.5),
+      zoom,
+    };
+  }
 
   // Margem ao redor da tela para rolar o mapa com visibilidade imediata
   const padFactor = zoom >= 16 ? 0.38 : zoom >= 14.5 ? 0.26 : zoom >= 13.5 ? 0.22 : 0.15;
@@ -440,6 +468,7 @@ function QuadraLayer({
   onSelectQuadra,
   onDeselectQuadra,
   showQuadras,
+  onlyActiveQuadras = false,
   adjustMode = false,
   isAddingQuadra = false,
   onAddMapClick,
@@ -469,6 +498,7 @@ function QuadraLayer({
     searchSeq,
     selectedKey: null,
     showQuadras,
+    onlyActiveQuadras,
     adjustMode,
     isAddingQuadra,
     onAddMapClick,
@@ -535,7 +565,8 @@ function QuadraLayer({
       st.cleanQuadras,
       st.deliveryQuadrasMap,
       st.highlightedQuadra,
-      st.selectedKey
+      st.selectedKey,
+      st.onlyActiveQuadras
     );
 
     if (container) {
@@ -706,6 +737,7 @@ function QuadraLayer({
       searchSeq,
       selectedKey,
       showQuadras,
+      onlyActiveQuadras,
       adjustMode,
       isAddingQuadra,
       onAddMapClick,
@@ -713,6 +745,7 @@ function QuadraLayer({
       onStageQuadraEdit,
       onDragActiveChange,
     };
+    lastRenderBoundsRef.current = null;
     syncMarkers();
   }, [
     syncMarkers,
@@ -722,6 +755,7 @@ function QuadraLayer({
     searchSeq,
     selectedKey,
     showQuadras,
+    onlyActiveQuadras,
     adjustMode,
     isAddingQuadra,
     onAddMapClick,
@@ -739,6 +773,9 @@ function QuadraLayer({
 
     const handleMove = () => {
       if (!stateRef.current.showQuadras || map._animatingZoom) return;
+      // No modo "Só Ativas", todas as quadras de entrega já estão na tela, sem recálculos pesados durante o pan
+      if (stateRef.current.onlyActiveQuadras) return;
+
       const zoom = map.getZoom();
       // Só pula renderização durante arrasto se a tela atual ainda estiver confortavelmente dentro da margem pré-renderizada
       if (
@@ -1665,6 +1702,7 @@ export default function MapView({
   const [mapInstance, setMapInstance] = useState(null);
   const [tileStyle, setTileStyle] = useState('osm');
   const [showQuadras, setShowQuadras] = useState(true);
+  const [showOnlyActiveQuadras, setShowOnlyActiveQuadras] = useState(false);
   const [adjustMode, setAdjustMode] = useState(false);
   const [isAddingQuadra, setIsAddingQuadra] = useState(false);
   const [pendingAddPoint, setPendingAddPoint] = useState(null);
@@ -2009,6 +2047,23 @@ export default function MapView({
   // Quadras deduplicadas compartilhadas entre a camada do mapa e a contagem na tela atual
   const cleanQuadrasBase = useMemo(() => buildCleanQuadras(quadras), [quadras]);
 
+  // Quantidade de quadras únicas que possuem entregas ativas (em laranja)
+  const activeQuadrasCount = useMemo(() => {
+    if (!cleanQuadrasBase || deliveryQuadrasMap.size === 0) return 0;
+    let count = 0;
+    for (let i = 0; i < cleanQuadrasBase.length; i++) {
+      const q = cleanQuadrasBase[i];
+      if (
+        deliveryQuadrasMap.has(q._numInt) ||
+        deliveryQuadrasMap.has(q.rawNumber) ||
+        deliveryQuadrasMap.has(q._label)
+      ) {
+        count++;
+      }
+    }
+    return count;
+  }, [cleanQuadrasBase, deliveryQuadrasMap]);
+
   // Atualiza contagem de quadras visíveis na tela quando houver filtro ativo
   useEffect(() => {
     if (!mapInstance || !searchedQuadra) return;
@@ -2160,6 +2215,21 @@ export default function MapView({
           <span className="quadra-icon-badge">Qd</span>
           <span>Quadras ({quadras.length})</span>
         </button>
+
+        {/* Filtro de Quadras com Entregas — reduz drasticamente o número de marcadores */}
+        {showQuadras && addresses.length > 0 && (
+          <button
+            type="button"
+            className={`map-control-btn only-active-quadras-btn ${showOnlyActiveQuadras ? 'active' : ''}`}
+            onClick={() => setShowOnlyActiveQuadras((v) => !v)}
+            title={showOnlyActiveQuadras
+              ? `Exibindo apenas ${activeQuadrasCount} quadras com entregas — clique para voltar a todas`
+              : `Esconder as ${quadras.length - activeQuadrasCount} quadras sem entrega para eliminar lag e travamentos`}
+          >
+            <span className="active-quadra-icon">🟠</span>
+            <span>{showOnlyActiveQuadras ? `Só Ativas (${activeQuadrasCount})` : 'Só Ativas'}</span>
+          </button>
+        )}
 
         {/* Alternador do Modo de Ajuste / Arrastar Pino */}
         {showQuadras && (
@@ -2317,6 +2387,7 @@ export default function MapView({
             setAdjustMode(false);
           }}
           showQuadras={showQuadras}
+          onlyActiveQuadras={showOnlyActiveQuadras}
           adjustMode={adjustMode}
           isAddingQuadra={isPickingMapSpot}
           onAddMapClick={handlePickMapSpot}
