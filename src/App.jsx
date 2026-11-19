@@ -169,20 +169,32 @@ function App() {
     }
   }, [addresses, importedSpreadsheet]);
 
-  // Sincroniza qualquer customização ou quadras salvas no localStorage do PC diretamente no arquivo físico JSON
+  // Sincroniza qualquer customização ou quadras salvas no localStorage do PC diretamente no banco SQLite
+  useEffect(() => {
+    // Carrega a base atualizada diretamente do banco SQLite na inicialização
+    fetch('/api/pontos?limit=3000')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && Array.isArray(data.quadras) && data.quadras.length > 0) {
+          setQuadras(data.quadras);
+        }
+      })
+      .catch((e) => console.warn('Aviso ao carregar quadras do SQLite:', e));
+  }, []);
+
   useEffect(() => {
     try {
       const hasCustom = localStorage.getItem('itaipuacu_quadras_custom');
       const hasAdded = localStorage.getItem('itaipuacu_quadras_added');
       const hasDeleted = localStorage.getItem('itaipuacu_quadras_deleted');
 
-      // Se houver qualquer customização local no navegador, sincroniza a base completa atual para o arquivo físico
+      // Se houver qualquer customização local no navegador, sincroniza a base completa atual para o banco SQLite
       if (hasCustom || hasAdded || hasDeleted) {
         fetch('/api/sync-all-quadras', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ quadras }),
-        }).catch((e) => console.warn('Erro ao sincronizar quadras com arquivo:', e));
+        }).catch((e) => console.warn('Erro ao sincronizar quadras com banco SQLite:', e));
       }
     } catch (e) {
       console.warn('Erro ao verificar sincronização de quadras:', e);
@@ -627,7 +639,7 @@ function App() {
       console.warn('Erro ao salvar no localStorage:', e);
     }
 
-    // 2. Salva fisicamente e de forma definitiva no itaipuacuQuadras.json e itaipuacuQuadras.js
+    // 2. Salva fisicamente e de forma definitiva no banco SQLite (com espelho de backup)
     try {
       const res = await fetch('/api/save-quadra', {
         method: 'POST',
@@ -638,13 +650,13 @@ function App() {
       if (res.ok && data.success) {
         if (cleanItems.length === 1) {
           const label = cleanItems[0].rawNumber || cleanItems[0].number;
-          showNotification(`Quadra #${label} salva oficialmente no JSON!`, 'success', 3500);
+          showNotification(`Quadra #${label} salva oficialmente no banco SQLite!`, 'success', 3500);
         } else {
-          showNotification(`${cleanItems.length} quadras salvas oficialmente no JSON!`, 'success', 3500);
+          showNotification(`${cleanItems.length} quadras salvas oficialmente no banco SQLite!`, 'success', 3500);
         }
         return true;
       }
-      showNotification('Erro ao gravar no arquivo JSON do projeto.', 'error', 4000);
+      showNotification('Erro ao gravar no banco SQLite do projeto.', 'error', 4000);
       return false;
     } catch (err) {
       console.warn('Erro ao salvar quadra via API:', err);

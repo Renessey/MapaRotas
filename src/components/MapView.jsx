@@ -433,7 +433,7 @@ function QuadraLayer({
     [cleanQuadrasBase, quadras]
   );
 
-  // Sobrepõe coordenadas temporárias arrastadas enquanto aguardam clique em "Salvar no JSON"
+  // Sobrepõe coordenadas temporárias arrastadas enquanto aguardam clique em "Salvar no Banco"
   const cleanQuadras = useMemo(() => {
     if (!pendingEdits || pendingEdits.size === 0) return baseCleanQuadras;
     return baseCleanQuadras.map((q) => {
@@ -805,7 +805,7 @@ function QuadraLayer({
 
             <div className="popup-drag-hint">
               {activePopupQuadra.isPendingSave ? (
-                <>🔴 <strong>Posição alterada:</strong> Clique em <strong>Salvar no JSON</strong> na barra inferior para confirmar.</>
+                <>🔴 <strong>Posição alterada:</strong> Clique em <strong>Salvar no Banco</strong> na barra inferior para confirmar.</>
               ) : (
                 <>📍 <strong>Ajustar posição:</strong> Para mover esta quadra no mapa, clique no botão <strong>Ajustar</strong> no topo da tela.</>
               )}
@@ -1826,7 +1826,7 @@ export default function MapView({
     });
   }, []);
 
-  // Salva todas as posições pendentes oficialmente no itaipuacuQuadras.json e localStorage
+  // Salva todas as posições pendentes oficialmente no banco de dados SQLite e localStorage
   const handleConfirmSaveEdits = useCallback(async () => {
     if (pendingEditsList.length === 0 || isSavingEdits) return;
     setIsSavingEdits(true);
@@ -2505,7 +2505,7 @@ export default function MapView({
         </div>
       )}
 
-      {/* Barra Inferior Flutuante ao Arrastar / Ajustar Quadras para Salvar no JSON */}
+      {/* Barra Inferior Flutuante ao Arrastar / Ajustar Quadras para Salvar no Banco SQLite */}
       {(draggingQuadra || pendingEditsList.length > 0) && (
         <div className="quadra-save-bottom-bar">
           <div className="save-bar-info">
@@ -2520,7 +2520,7 @@ export default function MapView({
               {draggingQuadra
                 ? 'Arrastando... solte no ponto desejado e salve'
                 : pendingEditsList.length === 1
-                  ? 'Posição alterada — salve no JSON para confirmar definitivo'
+                  ? 'Posição alterada — salve no banco SQLite para confirmar definitivo'
                   : `${pendingEditsList.map((q) => `#${formatQuadraNumber(q.rawNumber || q.number)}`).slice(0, 4).join(', ')}${pendingEditsList.length > 4 ? '...' : ''} aguardando salvar`}
             </span>
           </div>
@@ -2541,13 +2541,13 @@ export default function MapView({
               className="btn-save-quadra-json"
               onClick={handleConfirmSaveEdits}
               disabled={Boolean(draggingQuadra) || isSavingEdits || pendingEditsList.length === 0}
-              title="Salvar oficialmente e definitivo no itaipuacuQuadras.json"
+              title="Salvar oficialmente e definitivo no banco de dados SQLite"
             >
               {isSavingEdits
-                ? 'Salvando...'
+                ? 'Gravando no Banco...'
                 : draggingQuadra
-                  ? '💾 Salvar Posição'
-                  : '💾 Salvar no JSON'}
+                  ? '💾 Salvar no Banco'
+                  : '💾 Salvar no Banco'}
             </button>
           </div>
         </div>
