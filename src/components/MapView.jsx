@@ -1737,7 +1737,12 @@ export default function MapView({
         setIsLocating(false);
         let errorMsg = 'Não foi possível obter sua localização.';
         if (err.code === 1) {
-          errorMsg = 'Permissão de GPS negada pelo navegador. Habilite o acesso à localização para iniciar rotas do seu ponto atual.';
+          const isHttpInsecure = typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+          if (isHttpInsecure) {
+            errorMsg = 'O navegador bloqueia o GPS interno em conexões HTTP na rede local. Para abrir a rota, clique em "Navegar sem ativar local" abaixo — o Waze e Google Maps usarão o GPS do seu aparelho normalmente!';
+          } else {
+            errorMsg = 'Permissão de GPS negada pelo navegador. Toque no ícone de ajustes/cadeado ao lado da barra de endereço e mude Localização para "Permitir".';
+          }
         } else if (err.code === 2) {
           errorMsg = 'Sinal de GPS indisponível no momento.';
         } else if (err.code === 3) {
