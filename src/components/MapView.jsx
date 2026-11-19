@@ -946,11 +946,17 @@ function QuadraLayer({
                   className="btn-gather-pins"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onGatherPins(deliveriesHere, activePopupQuadra);
+                    onGatherPins(deliveriesHere, activePopupQuadra, pinInfoByRow);
                   }}
                   title="Mover todos os pinos desta quadra para perto daqui"
                 >
-                  📌 Juntar Pinos ({deliveriesHere.length})
+                  {(() => {
+                    // Conta pinos únicos pelo stopNumber (múltiplas rows no mesmo pino = 1 pino)
+                    const uniquePins = new Set(
+                      deliveriesHere.map((d) => pinInfoByRow?.get(d.originalRow)?.stopNumber ?? d.originalRow)
+                    );
+                    return `📌 Juntar Pinos (${uniquePins.size})`;
+                  })()}
                 </button>
               </div>
             )}
@@ -1896,16 +1902,31 @@ export default function MapView({
   }, [onDeleteQuadra]);
 
   // Agrupa pinos de entrega da quadra perto das coordenadas da quadra
-  const handleGatherPins = useCallback((deliveries, quadra) => {
+  const handleGatherPins = useCallback((deliveries, quadra, pinInfoByRow) => {
     if (!onUpdateAddress || !deliveries?.length) return;
-    // Distribui pinos em espiral ao redor do centro da quadra (~9m de espaçamento)
+
+    // Agrupa rows pelo mesmo pino (stopNumber) para não mover o mesmo pino N vezes
+    const pinGroups = new Map(); // stopKey → [rows...]
+    for (const d of deliveries) {
+      const stopKey = pinInfoByRow?.get(d.originalRow)?.stopNumber ?? `solo_${d.originalRow}`;
+      if (!pinGroups.has(stopKey)) pinGroups.set(stopKey, []);
+      pinGroups.get(stopKey).push(d);
+    }
+
+    // Distribui os grupos em espiral ao redor do centro da quadra (~9m de espaçamento)
     const offsetStep = 0.00008;
-    deliveries.forEach((d, i) => {
-      const angle = (i / deliveries.length) * 2 * Math.PI;
+    const groups = [...pinGroups.values()];
+    groups.forEach((groupRows, i) => {
+      const angle = (i / groups.length) * 2 * Math.PI;
       const radius = i === 0 ? 0 : offsetStep * (1 + Math.floor(i / 6));
       const lat = Number((quadra.lat + radius * Math.cos(angle)).toFixed(6));
       const lng = Number((quadra.lng + radius * Math.sin(angle)).toFixed(6));
-      onUpdateAddress(d.originalRow, { coordinates: { lat, lng }, isManuallyAdjusted: true }, i < deliveries.length - 1);
+      const isLast = i === groups.length - 1;
+      // Atualiza todas as rows do grupo para a mesma coordenada
+      groupRows.forEach((d, j) => {
+        const silent = !isLast || j < groupRows.length - 1;
+        onUpdateAddress(d.originalRow, { coordinates: { lat, lng }, isManuallyAdjusted: true }, silent);
+      });
     });
   }, [onUpdateAddress]);
 
