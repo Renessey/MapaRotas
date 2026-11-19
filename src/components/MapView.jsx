@@ -245,7 +245,6 @@ function MapController({ center, zoom, addresses, routeVersion = 0, onMapReady }
 function selectVisibleQuadras(map, cleanQuadras, deliveryQuadrasMap, highlightedQuadra, selectedKey, onlyActiveQuadras = false) {
   const zoom = map.getZoom();
   const viewBounds = map.getBounds();
-  const center = map.getCenter();
 
   // Modo desempenho máximo: exibe exclusivamente quadras ativas (com entregas), ocultando todas as outras
   if (onlyActiveQuadras) {
@@ -279,9 +278,6 @@ function selectVisibleQuadras(map, cleanQuadras, deliveryQuadrasMap, highlighted
   const padFactor = zoom >= 16 ? 0.38 : zoom >= 14.5 ? 0.26 : zoom >= 13.5 ? 0.22 : 0.15;
   const paddedBounds = viewBounds.pad(padFactor);
 
-  const halfLat = Math.max((viewBounds.getNorth() - viewBounds.getSouth()) / 2, 0.0005);
-  const halfLng = Math.max((viewBounds.getEast() - viewBounds.getWest()) / 2, 0.0005);
-
   const alwaysItems = [];
   const inViewItems = [];
   const inBufferItems = [];
@@ -308,89 +304,13 @@ function selectVisibleQuadras(map, cleanQuadras, deliveryQuadrasMap, highlighted
     if (viewBounds.contains([q.lat, q.lng])) {
       inViewItems.push({ q, hasDelivery: false, isHighlighted: false, isSelected: false, normDist: 0 });
     } else if (paddedBounds.contains([q.lat, q.lng])) {
-      const normDist = Math.max(
-        Math.abs(q.lat - center.lat) / halfLat,
-        Math.abs(q.lng - center.lng) / halfLng
-      );
-      inBufferItems.push({ q, hasDelivery: false, isHighlighted: false, isSelected: false, normDist });
+      inBufferItems.push({ q, hasDelivery: false, isHighlighted: false, isSelected: false, normDist: 1 });
     }
   }
 
-  // Zoom >= 14.5 (15+): mostra 100% de TODAS as quadras visíveis na tela (nenhum lote escondido!)
-  if (zoom >= 14.5) {
-    const MAX_TOTAL = 800;
-    const totalNeeded = alwaysItems.length + inViewItems.length + inBufferItems.length;
-    if (totalNeeded <= MAX_TOTAL) {
-      return {
-        items: alwaysItems.concat(inViewItems, inBufferItems),
-        paddedBounds,
-        zoom,
-      };
-    }
-
-    // Garante 100% do que está dentro da tela visível e completa as bordas de rolagem pelas mais próximas
-    const items = alwaysItems.concat(inViewItems);
-    const remaining = Math.max(0, MAX_TOTAL - items.length);
-    if (remaining > 0 && inBufferItems.length > 0) {
-      inBufferItems.sort((a, b) => a.normDist - b.normDist);
-      for (let i = 0; i < remaining && i < inBufferItems.length; i++) {
-        items.push(inBufferItems[i]);
-      }
-    }
-    return { items, paddedBounds, zoom };
-  }
-
-  // Zoom <= 14: amostragem espacial por grade fixa geográfica (mantém cobertura em toda a tela sem empilhar texto ou travar)
-  const isMidZoom = zoom >= 13.5;
-  const maxForZoom = isMidZoom ? 600 : 220;
-  const cellLat = isMidZoom ? 0.0012 : zoom >= 12.5 ? 0.0036 : 0.0070;
-  const cellLng = isMidZoom ? 0.0014 : zoom >= 12.5 ? 0.0042 : 0.0080;
-
-  if (alwaysItems.length + inViewItems.length + inBufferItems.length <= maxForZoom) {
-    return {
-      items: alwaysItems.concat(inViewItems, inBufferItems),
-      paddedBounds,
-      zoom,
-    };
-  }
-
-  const items = [...alwaysItems];
-  const occupiedCells = new Set();
-  const fallbackPool = [];
-
-  for (let i = 0; i < alwaysItems.length; i++) {
-    const q = alwaysItems[i].q;
-    occupiedCells.add(`${Math.floor(q.lat / cellLat)},${Math.floor(q.lng / cellLng)}`);
-  }
-
-  const processPool = (pool) => {
-    for (let i = 0; i < pool.length; i++) {
-      const item = pool[i];
-      const cellKey = `${Math.floor(item.q.lat / cellLat)},${Math.floor(item.q.lng / cellLng)}`;
-      if (!occupiedCells.has(cellKey)) {
-        occupiedCells.add(cellKey);
-        if (items.length < maxForZoom) {
-          items.push(item);
-        }
-      } else {
-        fallbackPool.push(item);
-      }
-    }
-  };
-
-  processPool(inViewItems);
-  if (items.length < maxForZoom) {
-    processPool(inBufferItems);
-  }
-
-  if (isMidZoom && items.length < maxForZoom && fallbackPool.length > 0) {
-    for (let i = 0; i < fallbackPool.length && items.length < maxForZoom; i++) {
-      if (fallbackPool[i].normDist === 0) {
-        items.push(fallbackPool[i]);
-      }
-    }
-  }
-
+  // Exibe 100% de TODAS as quadras visíveis na tela, sem qualquer descarte ou amostragem por grade
+  // Garante que no celular apareça exatamente todas as quadras que aparecem no PC, sem faltar nenhuma!
+  const items = alwaysItems.concat(inViewItems, inBufferItems);
   return { items, paddedBounds, zoom };
 }
 

@@ -23,6 +23,10 @@ let lastApiWriteTime = 0
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    host: true,
+    port: 5173,
+  },
   plugins: [
     react(),
     {
@@ -31,14 +35,44 @@ export default defineConfig({
         const norm = file.replace(/\\/g, '/')
         if (
           Date.now() - lastApiWriteTime < 3000 &&
-          (norm.endsWith('src/data/itaipuacuQuadras.json') ||
-            norm.endsWith('src/data/itaipuacuQuadras.js'))
+          norm.endsWith('src/data/itaipuacuQuadras.json')
         ) {
           // Evita reload/reinício no navegador quando a própria UI salva ou exclui quadras
           return []
         }
       },
       configureServer(server) {
+        // Grava o conjunto completo de quadras ativas da tela do PC direto no arquivo físico
+        server.middlewares.use('/api/sync-all-quadras', (req, res, next) => {
+          if (req.method === 'POST') {
+            let body = ''
+            req.on('data', (chunk) => {
+              body += chunk
+            })
+            req.on('end', () => {
+              try {
+                const payload = JSON.parse(body)
+                if (Array.isArray(payload.quadras) && payload.quadras.length > 0) {
+                  const filePath = path.resolve(__dirname, 'src/data/itaipuacuQuadras.json')
+                  lastApiWriteTime = Date.now()
+                  const jsonStr = JSON.stringify(payload.quadras, null, 2)
+                  fs.writeFileSync(filePath, jsonStr, 'utf8')
+                  res.setHeader('Content-Type', 'application/json')
+                  res.end(JSON.stringify({ success: true, count: payload.quadras.length }))
+                  return
+                }
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: 'Array quadras inválido' }))
+              } catch (err) {
+                res.statusCode = 500
+                res.end(JSON.stringify({ error: err.message }))
+              }
+            })
+            return
+          }
+          next()
+        })
+
         server.middlewares.use('/api/save-quadra', (req, res, next) => {
           if (req.method === 'POST') {
             let body = ''
@@ -98,10 +132,6 @@ export default defineConfig({
                 const jsonStr = JSON.stringify(data, null, 2)
                 fs.writeFileSync(filePath, jsonStr, 'utf8')
 
-                // Também mantém espelho em itaipuacuQuadras.js caso referenciado
-                const jsPath = path.resolve(__dirname, 'src/data/itaipuacuQuadras.js')
-                fs.writeFileSync(jsPath, `export default ${jsonStr};\n`, 'utf8')
-
                 res.setHeader('Content-Type', 'application/json')
                 res.end(
                   JSON.stringify({
@@ -155,9 +185,6 @@ export default defineConfig({
 
                   const jsonStr = JSON.stringify(data, null, 2)
                   fs.writeFileSync(filePath, jsonStr, 'utf8')
-
-                  const jsPath = path.resolve(__dirname, 'src/data/itaipuacuQuadras.js')
-                  fs.writeFileSync(jsPath, `export default ${jsonStr};\n`, 'utf8')
 
                   res.setHeader('Content-Type', 'application/json')
                   res.end(JSON.stringify({ success: true, deleted, total: data.length }))

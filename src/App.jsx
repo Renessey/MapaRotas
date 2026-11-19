@@ -169,6 +169,26 @@ function App() {
     }
   }, [addresses, importedSpreadsheet]);
 
+  // Sincroniza qualquer customização ou quadras salvas no localStorage do PC diretamente no arquivo físico JSON
+  useEffect(() => {
+    try {
+      const hasCustom = localStorage.getItem('itaipuacu_quadras_custom');
+      const hasAdded = localStorage.getItem('itaipuacu_quadras_added');
+      const hasDeleted = localStorage.getItem('itaipuacu_quadras_deleted');
+
+      // Se houver qualquer customização local no navegador, sincroniza a base completa atual para o arquivo físico
+      if (hasCustom || hasAdded || hasDeleted) {
+        fetch('/api/sync-all-quadras', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quadras }),
+        }).catch((e) => console.warn('Erro ao sincronizar quadras com arquivo:', e));
+      }
+    } catch (e) {
+      console.warn('Erro ao verificar sincronização de quadras:', e);
+    }
+  }, [quadras]);
+
   const showNotification = useCallback((message, type = 'info', timeout = 4000) => {
     setNotification({ message, type });
     if (timeout) {
