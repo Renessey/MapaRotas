@@ -516,7 +516,8 @@ function QuadraLayer({
       const key = q._key;
       const isActivelyDragging = draggingKeyRef.current === key;
       const isPendingSave = Boolean(q.isPendingSave);
-      const isDraggable = Boolean(item.isSelected || st.adjustMode || isActivelyDragging || isPendingSave);
+      // Modo de arrasto só é ativado quando o usuário clica explicitamente no botão "Ajustar"
+      const isDraggable = Boolean(st.adjustMode || isActivelyDragging || isPendingSave);
       const iconKey = `${q._label}-${item.hasDelivery ? 'd' : ''}-${item.isHighlighted ? 'h' : ''}-${isDraggable ? 'g' : ''}-${isPendingSave ? 'p' : ''}`;
       const zOffset = isActivelyDragging || isPendingSave ? 2500 : isDraggable ? 1000 : item.hasDelivery ? 500 : item.isHighlighted ? 600 : 10;
 
@@ -792,7 +793,7 @@ function QuadraLayer({
             <div className="popup-header">
               <span className="popup-tag quadra">Quadra {popupLabel}</span>
               <span className={`popup-badge drag-badge ${activePopupQuadra.isPendingSave ? 'pending-save-badge' : ''}`}>
-                {activePopupQuadra.isPendingSave ? '🔴 Aguardando Salvar' : '📍 Arrastável'}
+                {activePopupQuadra.isPendingSave ? '🔴 Aguardando Salvar' : '📍 Itaipuaçu'}
               </span>
               {hasDelivery && (
                 <span className="popup-badge delivery-tag">
@@ -803,7 +804,11 @@ function QuadraLayer({
             <h4 className="popup-title">Quadra #{popupLabel} (Itaipuaçu)</h4>
 
             <div className="popup-drag-hint">
-              ✋ <strong>Ajustar posição:</strong> Arraste o pino (ele ficará vermelho com número branco) e clique em <strong>Salvar no JSON</strong> abaixo para confirmar definitivamente!
+              {activePopupQuadra.isPendingSave ? (
+                <>🔴 <strong>Posição alterada:</strong> Clique em <strong>Salvar no JSON</strong> na barra inferior para confirmar.</>
+              ) : (
+                <>📍 <strong>Ajustar posição:</strong> Para mover esta quadra no mapa, clique no botão <strong>Ajustar</strong> no topo da tela.</>
+              )}
             </div>
 
             <p className="popup-meta">Posição do loteamento:</p>
@@ -2303,9 +2308,7 @@ export default function MapView({
           highlightedQuadra={highlightedQuadra}
           searchSeq={searchSeq}
           onSelectQuadra={() => {}}
-          onDeselectQuadra={() => {
-            setAdjustMode(false);
-          }}
+          onDeselectQuadra={() => {}}
           showQuadras={showQuadras}
           onlyActiveQuadras={showOnlyActiveQuadras}
           adjustMode={adjustMode}
