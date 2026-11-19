@@ -26,7 +26,7 @@ export function parseSpreadsheet(file) {
 export function extractQuadraLote(text) {
   if (!text) return { quadra: '', lote: '' };
   const str = String(text);
-  
+
   let quadra = '';
   let lote = '';
 
@@ -45,7 +45,7 @@ export function extractQuadraLote(text) {
 
 export function detectColumns(headers) {
   const normalized = headers.map(h => String(h || '').toLowerCase().trim());
-  
+
   const columnMap = {
     street: null,
     number: null,
@@ -101,7 +101,7 @@ export function detectColumns(headers) {
 
 export function extractAddresses(rows, columnMap) {
   if (!rows || rows.length < 2) return [];
-  
+
   const addresses = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -149,7 +149,7 @@ export function extractAddresses(rows, columnMap) {
     const latNum = parseFloat(latitude);
     const lngNum = parseFloat(longitude);
     const hasCoords = !isNaN(latNum) && !isNaN(lngNum) && latNum !== 0 && lngNum !== 0;
-    
+
     addresses.push({
       originalRow: i,
       street,
@@ -185,7 +185,7 @@ export function parseShopeeSpreadsheet(file) {
 
 function detectShopeeColumns(headers) {
   const normalized = headers.map(h => String(h || '').toLowerCase().trim());
-  
+
   const columnMap = {
     recipient: null,
     phone: null,
@@ -241,7 +241,7 @@ function detectShopeeColumns(headers) {
 
 function extractShopeeAddresses(rows, columnMap) {
   const addresses = [];
-  
+
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.every(cell => !cell)) continue;
@@ -286,7 +286,7 @@ function extractShopeeAddresses(rows, columnMap) {
     const latNum = parseFloat(latitude);
     const lngNum = parseFloat(longitude);
     const hasCoords = !isNaN(latNum) && !isNaN(lngNum) && latNum !== 0 && lngNum !== 0;
-    
+
     addresses.push({
       originalRow: i,
       recipient,

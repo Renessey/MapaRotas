@@ -489,6 +489,38 @@
 }
 
 /* Excluir Quadra no Popup */
+.popup-gather-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.btn-gather-pins {
+  width: 100%;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%);
+  border: 1px solid #5b21b6;
+  color: #ffffff;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(109, 40, 217, 0.3);
+  transition: all 0.15s ease;
+}
+
+.btn-gather-pins:hover {
+  background: linear-gradient(135deg, #5b21b6 0%, #3b0764 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.45);
+}
+
+.btn-gather-pins:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(109, 40, 217, 0.3);
+}
+
 .popup-delete-section {
   margin-top: 10px;
   padding-top: 10px;

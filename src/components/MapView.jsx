@@ -446,6 +446,7 @@ function QuadraLayer({
   onStageQuadraEdit,
   onDragActiveChange,
   onDeleteQuadra,
+  onGatherPins,
   userLocation,
   onNavigateQuadra,
   onRequestActivateLocation,
@@ -932,6 +933,25 @@ function QuadraLayer({
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {onGatherPins && deliveriesHere.length > 0 && !isConfirmingDelete && (
+              <div
+                className="popup-gather-section"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="btn-gather-pins"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onGatherPins(deliveriesHere, activePopupQuadra);
+                  }}
+                  title="Mover todos os pinos desta quadra para perto daqui"
+                >
+                  📌 Juntar Pinos ({deliveriesHere.length})
+                </button>
               </div>
             )}
 
@@ -1875,6 +1895,20 @@ export default function MapView({
     }
   }, [onDeleteQuadra]);
 
+  // Agrupa pinos de entrega da quadra perto das coordenadas da quadra
+  const handleGatherPins = useCallback((deliveries, quadra) => {
+    if (!onUpdateAddress || !deliveries?.length) return;
+    // Distribui pinos em espiral ao redor do centro da quadra (~9m de espaçamento)
+    const offsetStep = 0.00008;
+    deliveries.forEach((d, i) => {
+      const angle = (i / deliveries.length) * 2 * Math.PI;
+      const radius = i === 0 ? 0 : offsetStep * (1 + Math.floor(i / 6));
+      const lat = Number((quadra.lat + radius * Math.cos(angle)).toFixed(6));
+      const lng = Number((quadra.lng + radius * Math.sin(angle)).toFixed(6));
+      onUpdateAddress(d.originalRow, { coordinates: { lat, lng }, isManuallyAdjusted: true }, i < deliveries.length - 1);
+    });
+  }, [onUpdateAddress]);
+
   // Mapeamento de entregas por quadra para destaque rápido
   const deliveryQuadrasMap = useMemo(() => {
     const map = new Map();
@@ -2268,6 +2302,7 @@ export default function MapView({
           onStageQuadraEdit={handleStageQuadraEdit}
           onDragActiveChange={setDraggingQuadra}
           onDeleteQuadra={handleDeleteQuadraWithCleanup}
+          onGatherPins={handleGatherPins}
           userLocation={userLocation}
           onNavigateQuadra={handleNavigateTarget}
           onRequestActivateLocation={handleLocationButtonClick}
