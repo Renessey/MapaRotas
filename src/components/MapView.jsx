@@ -2258,38 +2258,50 @@ export default function MapView({
       {/* Mini Card Flutuante de Endereço Selecionado */}
       {selectedAddress && !draggingQuadra && pendingEditsList.length === 0 && !repositioningStop && (
         <div className="map-selected-card">
-          <div className="card-info">
-            <div className="card-meta">
-              <span className="card-badge">
-                Parada #{selectedStopNumber || selectedAddress.originalRow}
-              </span>
-              {(selectedGroup?.isDelivered || selectedAddress.delivered) && (
-                <span className="card-tag delivered">✅ Entregue</span>
-              )}
-              {selectedGroup && selectedGroup.packageCount > 1 && (
-                <span className="card-tag pkg-count">
-                  📦 {selectedGroup.packageCount} pacotes
+          {/* Linha de info + fechar */}
+          <div className="card-top-row">
+            <div className="card-info">
+              <div className="card-meta">
+                <span className="card-badge">
+                  Parada #{selectedStopNumber || selectedAddress.originalRow}
                 </span>
+                {(selectedGroup?.isDelivered || selectedAddress.delivered) && (
+                  <span className="card-tag delivered">✅ Entregue</span>
+                )}
+                {selectedGroup && selectedGroup.packageCount > 1 && (
+                  <span className="card-tag pkg-count">
+                    📦 {selectedGroup.packageCount} pkgs
+                  </span>
+                )}
+                {selectedAddress.quadra && (
+                  <span className="card-tag quadra">Q{selectedAddress.quadra}</span>
+                )}
+                {selectedAddress.lote && (
+                  <span className="card-tag lote">L{selectedAddress.lote}</span>
+                )}
+                {selectedAddress.isManuallyAdjusted && (
+                  <span className="card-tag adjusted">📌</span>
+                )}
+              </div>
+              {selectedAddress.recipient && (
+                <strong className="card-name">{selectedAddress.recipient}</strong>
               )}
-              {selectedAddress.quadra && (
-                <span className="card-tag quadra">Quadra {selectedAddress.quadra}</span>
-              )}
-              {selectedAddress.lote && (
-                <span className="card-tag lote">Lote {selectedAddress.lote}</span>
-              )}
-              {selectedAddress.isManuallyAdjusted && (
-                <span className="card-tag adjusted">📌 Ajustado</span>
-              )}
+              <p className="card-street">
+                {selectedAddress.street}{selectedAddress.number ? `, Nº ${selectedAddress.number}` : ''}
+                {selectedAddress.neighborhood ? ` · ${selectedAddress.neighborhood}` : ''}
+              </p>
             </div>
-            {selectedAddress.recipient && (
-              <strong className="card-name">{selectedAddress.recipient}</strong>
-            )}
-            <p className="card-street">
-              {selectedAddress.street}{selectedAddress.number ? `, Nº ${selectedAddress.number}` : ''}
-              {selectedAddress.neighborhood ? ` — ${selectedAddress.neighborhood}` : ''}
-            </p>
+            <button
+              type="button"
+              className="card-btn-close"
+              onClick={() => onSelect && onSelect(null, { pan: false })}
+              title="Fechar"
+            >
+              ✕
+            </button>
           </div>
 
+          {/* Linha de ações */}
           <div className="card-actions">
             {onConfirmDelivery && (
               <button
@@ -2302,7 +2314,7 @@ export default function MapView({
                 title={
                   selectedGroup?.isDelivered
                     ? 'Desfazer entrega deste pino'
-                    : 'Confirmar entrega deste pino (pino ficará cinza)'
+                    : 'Confirmar entrega deste pino'
                 }
               >
                 {selectedGroup?.isDelivered ? '↩️ Entregue' : '✓ Confirmar'}
@@ -2336,7 +2348,7 @@ export default function MapView({
                       targetRows: selectedGroup?.rowIds || [selectedAddress.originalRow],
                     });
                   }}
-                  title="Clicar em um ponto do mapa para mover este pino"
+                  title="Mover pino para outro ponto no mapa"
                 >
                   🎯 Mover
                 </button>
@@ -2361,7 +2373,7 @@ export default function MapView({
                   }}
                   title="Navegar no Google Maps"
                 >
-                  🗺️ Google Maps ↗
+                  🗺️ Maps
                 </button>
                 <button
                   type="button"
@@ -2380,7 +2392,7 @@ export default function MapView({
                   }}
                   title="Navegar no Waze"
                 >
-                  🚗 Waze ↗
+                  🚗 Waze
                 </button>
               </>
             )}
@@ -2393,14 +2405,6 @@ export default function MapView({
                 📞 Ligar
               </a>
             )}
-            <button
-              type="button"
-              className="card-btn-close"
-              onClick={() => onSelect && onSelect(null, { pan: false })}
-              title="Fechar detalhes"
-            >
-              ✕
-            </button>
           </div>
         </div>
       )}
