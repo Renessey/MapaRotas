@@ -1796,29 +1796,55 @@ export default function MapView({
 
             {deliveriesHere.length > 0 && (
               <div className="popup-quadra-deliveries">
-                <h5 className="popup-section-subtitle">
-                  Paradas nesta quadra ({deliveriesHere.length}):
-                </h5>
-                <ul className="popup-deliveries-list">
+                <div className="popup-quadra-deliveries-header">
+                  <span className="popup-section-subtitle">
+                    📦 Paradas nesta quadra ({deliveriesHere.length})
+                  </span>
+                </div>
+                <div className="popup-deliveries-list">
                   {deliveriesHere.map((d) => {
                     const pin = pinInfoByRow?.get(d.originalRow);
                     const stopNumber = pin?.stopNumber;
+                    const isItemDelivered = Boolean(pin?.isDelivered || d.delivered);
                     return (
-                      <li key={`delivery-${d.originalRow}`} className="popup-delivery-item">
-                        <span className="popup-delivery-idx">#{d.originalRow}</span>
-                        {stopNumber && (
-                          <span className="popup-delivery-pin-badge" title="Pino da rota">
-                            pino {stopNumber}
+                      <div
+                        key={`delivery-${d.originalRow}`}
+                        className={`popup-delivery-item ${isItemDelivered ? 'is-delivered' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onSelect) {
+                            onSelect(d.originalRow, { pan: false });
+                          }
+                        }}
+                        title={`Clique para destacar parada #${stopNumber || d.originalRow}`}
+                      >
+                        <div className="popup-delivery-item-left">
+                          <span className="popup-delivery-pin-badge" title="Número da parada">
+                            📍 {stopNumber ? `Pino #${stopNumber}` : `#${d.originalRow}`}
                           </span>
-                        )}
-                        <span className="popup-delivery-name">
-                          {d.recipient || `Destinatário #${d.originalRow}`}
-                        </span>
-                        {d.lote && <span className="popup-delivery-lote">Lt {d.lote}</span>}
-                      </li>
+                          {d.lote && (
+                            <span className="popup-delivery-lote-badge">
+                              Lote {d.lote}
+                            </span>
+                          )}
+                          {isItemDelivered && (
+                            <span className="popup-delivery-status-badge">
+                              ✓ Entregue
+                            </span>
+                          )}
+                        </div>
+                        <div className="popup-delivery-item-right">
+                          <span className="popup-delivery-recipient" title={d.recipient}>
+                            {d.recipient || `Destinatário #${d.originalRow}`}
+                          </span>
+                          <span className="popup-delivery-sub-idx">
+                            Linha #{d.originalRow}
+                          </span>
+                        </div>
+                      </div>
                     );
                   })}
-                </ul>
+                </div>
               </div>
             )}
 
