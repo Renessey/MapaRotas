@@ -568,6 +568,8 @@ export default function MapView({
   const deliveryPopupNode = useMemo(() => document.createElement('div'), []);
   const [currentBounds, setCurrentBounds] = useState(null);
   const rafIdRef = useRef(null);
+  const lastFittedRouteVersionRef = useRef(null);
+  const lastCenterRef = useRef(null);
 
   // Destaque externo de quadra (da lista de entregas)
   if (quadraHighlightRequest && quadraHighlightRequest.seq !== prevExtHighlightSeq) {
@@ -648,6 +650,11 @@ export default function MapView({
     if (selectedId === null || selectedId === undefined) return null;
     return addresses.find((a) => a.originalRow === selectedId) || null;
   }, [addresses, selectedId]);
+
+  const selectedStopNumber = useMemo(() => {
+    if (!selectedAddress) return null;
+    return selectedGroup ? selectedGroup.stopNumber : null;
+  }, [selectedAddress, selectedGroup]);
 
   // Contagem de quadras com entregas ativas
   const activeQuadrasCount = useMemo(() => {
@@ -1034,29 +1041,51 @@ export default function MapView({
     mapRef.current.setStyle(MAP_STYLES[tileStyle] || MAP_STYLES.osm);
   }, [tileStyle]);
 
-  // Sincroniza centro e zoom solicitados externamente
+  // Sincroniza centro e zoom solicitados externamente (apenas se a coordenada mudou)
   useEffect(() => {
     if (!mapRef.current || !center || center.length !== 2 || isNaN(center[0]) || isNaN(center[1])) return;
+    if (
+      lastCenterRef.current &&
+      lastCenterRef.current[0] === center[0] &&
+      lastCenterRef.current[1] === center[1] &&
+      lastCenterRef.current[2] === zoom
+    ) {
+      return;
+    }
+    lastCenterRef.current = [center[0], center[1], zoom];
     mapRef.current.flyTo({
       center: [center[1], center[0]],
       zoom: zoom || 16,
-      duration: 1000,
+      duration: 800,
     });
   }, [center, zoom]);
 
-  // FitBounds quando uma nova rota é carregada
+  // FitBounds APENAS quando uma NOVA rota é carregada (routeVersion muda)
   useEffect(() => {
-    if (!mapRef.current || !addresses || addresses.length === 0) return;
+    if (!mapRef.current || !addresses || addresses.length === 0) {
+      lastFittedRouteVersionRef.current = null;
+      return;
+    }
+
+    // Não re-enquadra se a versão da rota já foi enquadrada
+    if (lastFittedRouteVersionRef.current === routeVersion) return;
+
     const valid = addresses.filter(
       (a) => a.coordinates && !isNaN(a.coordinates.lat) && !isNaN(a.coordinates.lng)
     );
     if (valid.length === 0) return;
 
+    lastFittedRouteVersionRef.current = routeVersion;
+
     const bounds = new maplibregl.LngLatBounds();
     valid.forEach((a) => {
       bounds.extend([a.coordinates.lng, a.coordinates.lat]);
     });
-    mapRef.current.fitBounds(bounds, { padding: 50, duration: 1000, maxZoom: 16.5 });
+    try {
+      mapRef.current.fitBounds(bounds, { padding: 50, duration: 1000, maxZoom: 16.5 });
+    } catch (e) {
+      console.warn('Erro ao enquadrar mapa:', e);
+    }
   }, [routeVersion, addresses]);
 
   // Sincronização em alta performance dos marcadores de Quadras no MapLibre
@@ -2231,62 +2260,146 @@ export default function MapView({
         <div className="map-selected-card">
           <div className="card-info">
             <div className="card-meta">
-              <span className="card-stop-badge">
-                Parada #{selectedGroup ? selectedGroup.stopNumber : selectedAddress.originalRow}
+              <span className="card-badge">
+                Parada #{selectedStopNumber || selectedAddress.originalRow}
               </span>
+              {(selectedGroup?.isDelivered || selectedAddress.delivered) && (
+                <span className="card-tag delivered">✅ Entregue</span>
+              )}
               {selectedGroup && selectedGroup.packageCount > 1 && (
-                <span className="card-pkg-badge">📦 {selectedGroup.packageCount} pacotes</span>
+                <span className="card-tag pkg-count">
+                  📦 {selectedGroup.packageCount} pacotes
+                </span>
               )}
               {selectedAddress.quadra && (
-                <span className="card-tag">Quadra {selectedAddress.quadra}</span>
+                <span className="card-tag quadra">Quadra {selectedAddress.quadra}</span>
               )}
               {selectedAddress.lote && (
-                <span className="card-tag">Lote {selectedAddress.lote}</span>
+                <span className="card-tag lote">Lote {selectedAddress.lote}</span>
+              )}
+              {selectedAddress.isManuallyAdjusted && (
+                <span className="card-tag adjusted">📌 Ajustado</span>
               )}
             </div>
-            <p className="card-address">
-              <strong>{selectedAddress.street}</strong>
-              {selectedAddress.number ? `, Nº ${selectedAddress.number}` : ''}
+            {selectedAddress.recipient && (
+              <strong className="card-name">{selectedAddress.recipient}</strong>
+            )}
+            <p className="card-street">
+              {selectedAddress.street}{selectedAddress.number ? `, Nº ${selectedAddress.number}` : ''}
+              {selectedAddress.neighborhood ? ` — ${selectedAddress.neighborhood}` : ''}
             </p>
           </div>
+
           <div className="card-actions">
+            {onConfirmDelivery && (
+              <button
+                type="button"
+                className={`card-btn-action confirm-delivery ${selectedGroup?.isDelivered ? 'is-done' : ''}`}
+                onClick={() => {
+                  const targetRows = selectedGroup?.rowIds || [selectedAddress.originalRow];
+                  onConfirmDelivery(targetRows, !selectedGroup?.isDelivered);
+                }}
+                title={
+                  selectedGroup?.isDelivered
+                    ? 'Desfazer entrega deste pino'
+                    : 'Confirmar entrega deste pino (pino ficará cinza)'
+                }
+              >
+                {selectedGroup?.isDelivered ? '↩️ Entregue' : '✓ Confirmar'}
+              </button>
+            )}
+            {onUpdateAddress && (
+              <>
+                <button
+                  type="button"
+                  className="card-btn-action edit-pin"
+                  onClick={() =>
+                    setEditingStop({
+                      stop: selectedAddress,
+                      stopNumber: selectedStopNumber || selectedAddress.originalRow,
+                      group: selectedGroup,
+                    })
+                  }
+                  title="Editar informações e coordenadas deste pino"
+                >
+                  ✏️ Editar
+                </button>
+                <button
+                  type="button"
+                  className="card-btn-action move-pin"
+                  onClick={() => {
+                    setIsAddingQuadra(false);
+                    setPendingAddPoint(null);
+                    setRepositioningStop({
+                      address: selectedAddress,
+                      stopNumber: selectedStopNumber || selectedAddress.originalRow,
+                      targetRows: selectedGroup?.rowIds || [selectedAddress.originalRow],
+                    });
+                  }}
+                  title="Clicar em um ponto do mapa para mover este pino"
+                >
+                  🎯 Mover
+                </button>
+              </>
+            )}
+            {selectedAddress.coordinates && (
+              <>
+                <button
+                  type="button"
+                  className="card-btn-action gmaps"
+                  onClick={() => {
+                    handleNavigateTarget(
+                      {
+                        lat: selectedAddress.coordinates.lat,
+                        lng: selectedAddress.coordinates.lng,
+                        label:
+                          selectedAddress.recipient ||
+                          `Parada #${selectedStopNumber || selectedAddress.originalRow}`,
+                      },
+                      'google'
+                    );
+                  }}
+                  title="Navegar no Google Maps"
+                >
+                  🗺️ Google Maps ↗
+                </button>
+                <button
+                  type="button"
+                  className="card-btn-action waze"
+                  onClick={() => {
+                    handleNavigateTarget(
+                      {
+                        lat: selectedAddress.coordinates.lat,
+                        lng: selectedAddress.coordinates.lng,
+                        label:
+                          selectedAddress.recipient ||
+                          `Parada #${selectedStopNumber || selectedAddress.originalRow}`,
+                      },
+                      'waze'
+                    );
+                  }}
+                  title="Navegar no Waze"
+                >
+                  🚗 Waze ↗
+                </button>
+              </>
+            )}
+            {selectedAddress.phone && (
+              <a
+                href={`tel:${selectedAddress.phone.replace(/\D/g, '')}`}
+                className="card-btn-action phone"
+                title="Ligar para o cliente"
+              >
+                📞 Ligar
+              </a>
+            )}
             <button
               type="button"
-              className="btn-nav gmaps"
-              onClick={() => {
-                if (selectedAddress.coordinates) {
-                  handleNavigateTarget(
-                    {
-                      lat: selectedAddress.coordinates.lat,
-                      lng: selectedAddress.coordinates.lng,
-                      label: selectedAddress.recipient,
-                    },
-                    'google'
-                  );
-                }
-              }}
-              title="Google Maps"
+              className="card-btn-close"
+              onClick={() => onSelect && onSelect(null, { pan: false })}
+              title="Fechar detalhes"
             >
-              Google Maps
-            </button>
-            <button
-              type="button"
-              className="btn-nav waze"
-              onClick={() => {
-                if (selectedAddress.coordinates) {
-                  handleNavigateTarget(
-                    {
-                      lat: selectedAddress.coordinates.lat,
-                      lng: selectedAddress.coordinates.lng,
-                      label: selectedAddress.recipient,
-                    },
-                    'waze'
-                  );
-                }
-              }}
-              title="Waze"
-            >
-              Waze
+              ✕
             </button>
           </div>
         </div>
