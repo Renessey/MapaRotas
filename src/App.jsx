@@ -1,4 +1,18 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import {
+  Map as MapIcon,
+  Package,
+  CheckCircle2,
+  FileSpreadsheet,
+  Trash2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Navigation,
+  Check,
+  AlertCircle,
+  Info,
+  X,
+} from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import AddressList from './components/AddressList';
 import DeliveryHistory from './components/DeliveryHistory';
@@ -89,7 +103,7 @@ function buildUpdatedFullAddress(addr) {
 function App() {
   const [savedInitialRoute] = useState(() => readSavedActiveRoute());
   const [addresses, setAddresses] = useState(() => savedInitialRoute?.addresses || []);
-  const [selectedId, setSelectedId] = useState(() => savedInitialRoute?.addresses?.[0]?.originalRow || null);
+  const [selectedId, setSelectedId] = useState(null);
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [importedSpreadsheet, setImportedSpreadsheet] = useState(() => savedInitialRoute?.importedSpreadsheet || null);
@@ -799,12 +813,7 @@ function App() {
       <header className="app-topbar">
         <div className="topbar-brand">
           <div className="brand-logo-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-              <circle cx="12" cy="10" r="3" />
-              <path d="M12 16v-4" />
-              <path d="M12 16h4" />
-            </svg>
+            <Navigation size={22} strokeWidth={2.2} />
           </div>
           <div className="brand-titles">
             <div className="brand-name-row">
@@ -855,10 +864,7 @@ function App() {
               onClick={handleRemoveSpreadsheet}
               title="Remover planilha importada e limpar rota atual"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
+              <Trash2 size={16} />
               <span>Remover Planilha</span>
             </button>
           )}
@@ -870,12 +876,22 @@ function App() {
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             title={sidebarCollapsed ? 'Expandir painel' : 'Recolher painel'}
           >
-            {sidebarCollapsed ? 'Mostrar Painel ⮞' : 'Recolher Painel ⮜'}
+            {sidebarCollapsed ? (
+              <>
+                <PanelLeftOpen size={16} />
+                <span>Mostrar Painel</span>
+              </>
+            ) : (
+              <>
+                <PanelLeftClose size={16} />
+                <span>Recolher Painel</span>
+              </>
+            )}
           </button>
         </div>
       </header>
 
-      {/* Segmented Control para Telas Mobile / Tablets Pequenos */}
+      {/* Segmented Control para Telas Mobile / Tablets Pequenos (Desativado em favor da Bottom Navbar estilo App) */}
       <div className="mobile-view-tabs">
         <button
           className={`mobile-tab-btn ${mobileView === 'map' ? 'active' : ''}`}
@@ -913,14 +929,14 @@ function App() {
         <div className={`toast-banner ${notification.type}`}>
           <div className="toast-content">
             <span className="toast-icon">
-              {notification.type === 'success' && '✓'}
-              {notification.type === 'error' && '✕'}
-              {notification.type === 'info' && 'ℹ'}
+              {notification.type === 'success' && <Check size={18} strokeWidth={2.5} />}
+              {notification.type === 'error' && <AlertCircle size={18} strokeWidth={2.5} />}
+              {notification.type === 'info' && <Info size={18} strokeWidth={2.5} />}
             </span>
             <span className="toast-text">{notification.message}</span>
           </div>
           <button className="toast-close" onClick={() => setNotification(null)} aria-label="Fechar">
-            ✕
+            <X size={16} />
           </button>
         </div>
       )}
@@ -1074,6 +1090,71 @@ function App() {
           />
         </section>
       </main>
+
+      {/* Barra de Navegação Inferior Fixa Estilo App Mobile */}
+      <nav className="mobile-bottom-navbar" aria-label="Navegação do Aplicativo">
+        <button
+          type="button"
+          className={`mobile-nav-item ${mobileView === 'map' ? 'active' : ''}`}
+          onClick={() => setMobileView('map')}
+        >
+          <div className="mobile-nav-icon-wrapper">
+            <MapIcon size={22} strokeWidth={mobileView === 'map' ? 2.5 : 1.8} />
+            {groupedStops.length > 0 && (
+              <span className="mobile-nav-badge blue">{groupedStops.length}</span>
+            )}
+          </div>
+          <span className="mobile-nav-label">Mapa</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-item ${mobileView === 'sidebar' && activeTab === 'deliveries' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('deliveries');
+            setMobileView('sidebar');
+          }}
+        >
+          <div className="mobile-nav-icon-wrapper">
+            <Package size={22} strokeWidth={mobileView === 'sidebar' && activeTab === 'deliveries' ? 2.5 : 1.8} />
+            {pendingAddresses.length > 0 && (
+              <span className="mobile-nav-badge orange">{pendingAddresses.length}</span>
+            )}
+          </div>
+          <span className="mobile-nav-label">Entregas</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-item ${mobileView === 'sidebar' && activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('history');
+            setMobileView('sidebar');
+          }}
+        >
+          <div className="mobile-nav-icon-wrapper">
+            <CheckCircle2 size={22} strokeWidth={mobileView === 'sidebar' && activeTab === 'history' ? 2.5 : 1.8} />
+            {deliveredAddresses.length > 0 && (
+              <span className="mobile-nav-badge green">{deliveredAddresses.length}</span>
+            )}
+          </div>
+          <span className="mobile-nav-label">Histórico</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-item ${mobileView === 'sidebar' && activeTab === 'upload' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('upload');
+            setMobileView('sidebar');
+          }}
+        >
+          <div className="mobile-nav-icon-wrapper">
+            <FileSpreadsheet size={22} strokeWidth={mobileView === 'sidebar' && activeTab === 'upload' ? 2.5 : 1.8} />
+          </div>
+          <span className="mobile-nav-label">Planilha</span>
+        </button>
+      </nav>
     </div>
   );
 }

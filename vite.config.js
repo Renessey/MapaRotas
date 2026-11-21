@@ -391,4 +391,28 @@ export default defineConfig({
       },
     },
   ],
+  build: {
+    cssMinify: true,
+    sourcemap: false,
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      treeshake: true,
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+            return 'vendor-react'
+          }
+          if (id.includes('node_modules/maplibre-gl/')) {
+            return 'vendor-maplibre'
+          }
+          if (id.includes('node_modules/xlsx/')) {
+            return 'vendor-xlsx'
+          }
+          if (id.includes('node_modules/lucide-react/')) {
+            return 'vendor-lucide'
+          }
+        },
+      },
+    },
+  },
 })

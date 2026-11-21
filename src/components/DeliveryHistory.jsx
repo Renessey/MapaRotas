@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Search, X } from 'lucide-react';
 import './DeliveryHistory.css';
 
 function formatDeliveredTime(isoStr) {
@@ -138,7 +139,7 @@ export default function DeliveryHistory({
             </span>
             {stats.deliveredPins > 0 && (
               <span className="h-badge h-badge-pins" title="Pinos já totalmente entregues no mapa">
-                📍 {stats.deliveredPins} pinos cinza
+                ✓ {stats.deliveredPins} pinos verdes
               </span>
             )}
           </div>
@@ -156,10 +157,7 @@ export default function DeliveryHistory({
         {/* Busca e Ordenação dentro da Tabela de Histórico */}
         <div className="history-toolbar">
           <div className="history-search-wrapper">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
+            <Search size={15} />
             <input
               type="text"
               placeholder="Buscar #34, #101, lote, quadra, rua, cliente..."
@@ -173,7 +171,7 @@ export default function DeliveryHistory({
                 onClick={() => setSearchTerm('')}
                 title="Limpar busca"
               >
-                ✕
+                <X size={14} />
               </button>
             )}
           </div>

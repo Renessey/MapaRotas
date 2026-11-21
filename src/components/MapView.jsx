@@ -2,6 +2,26 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import {
+  Focus,
+  Navigation,
+  Layers,
+  CheckCheck,
+  Move,
+  Plus,
+  Search,
+  ChevronUp,
+  ChevronDown,
+  CheckCircle2,
+  RotateCcw,
+  Edit3,
+  MapPin,
+  Map as MapIcon,
+  Phone,
+  X,
+  MessageCircle,
+  Package,
+} from 'lucide-react';
 import itaipuacuQuadras from '../data/itaipuacuQuadras.json';
 import { groupDeliveryAddressesForMap } from '../utils/addressGrouping';
 import './MapView.css';
@@ -82,9 +102,10 @@ function createCustomPinHtml({
       <div class="custom-marker-wrapper ${selectedClass} ${adjustedClass} ${multiPkgClass} ${deliveredClass}">
         ${topBadgeHtml}
         <div class="custom-marker-pin ${bgClass}">
-          <span class="custom-marker-text">${label}</span>
+          <span class="custom-marker-text">${isDelivered ? '✓' : label}</span>
         </div>
-        ${isManuallyAdjusted ? '<span class="pin-adjusted-dot" title="Posição ajustada manualmente"></span>' : ''}
+        ${isDelivered ? '<span class="pin-verified-badge" title="Entrega confirmada">✓</span>' : ''}
+        ${isManuallyAdjusted && !isDelivered ? '<span class="pin-adjusted-dot" title="Posição ajustada manualmente"></span>' : ''}
         <div class="custom-marker-shadow"></div>
         ${isSelected ? '<div class="custom-marker-pulse"></div>' : ''}
       </div>
@@ -549,6 +570,29 @@ export default function MapView({
   const [activePopupDelivery, setActivePopupDelivery] = useState(null);
   const [editingStop, setEditingStop] = useState(null);
   const [repositioningStop, setRepositioningStop] = useState(null);
+  const [isBottomSheetExpanded, setIsBottomSheetExpanded] = useState(false);
+  const touchStartYRef = useRef(0);
+
+  useEffect(() => {
+    setIsBottomSheetExpanded(false);
+  }, [selectedId]);
+
+  const handleTouchStart = (e) => {
+    if (e.touches && e.touches[0]) {
+      touchStartYRef.current = e.touches[0].clientY;
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (e.changedTouches && e.changedTouches[0]) {
+      const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+      if (deltaY < -35) {
+        setIsBottomSheetExpanded(true);
+      } else if (deltaY > 35) {
+        setIsBottomSheetExpanded(false);
+      }
+    }
+  };
 
   // GPS / Localização
   const [userLocation, setUserLocation] = useState(null);
@@ -1331,7 +1375,8 @@ export default function MapView({
         deliveredCount,
       });
 
-      const isDraggable = !st.isPickingMapSpot;
+      // Pino entregue é travado contra movimentação (não pode mais ser arrastado)
+      const isDraggable = !st.isPickingMapSpot && !isDelivered;
 
       const existing = existingMap.get(key);
       if (existing) {
@@ -1622,7 +1667,8 @@ export default function MapView({
           onClick={handleFitAll}
           title="Enquadrar todas as paradas ou mapa geral"
         >
-          <span>🎯 Enquadrar</span>
+          <Focus size={15} />
+          <span>Enquadrar</span>
         </button>
 
         <button
@@ -1631,7 +1677,7 @@ export default function MapView({
           onClick={handleLocationButtonClick}
           title={userLocation ? 'Centralizar no seu local (GPS ativo)' : 'Ativar localização em tempo real'}
         >
-          <span className="location-icon">{userLocation ? '📍' : '🎯'}</span>
+          <Navigation size={15} />
           <span>{userLocation ? 'Meu Local' : 'Ativar GPS'}</span>
         </button>
 
@@ -1641,6 +1687,7 @@ export default function MapView({
           onClick={() => setShowQuadras(!showQuadras)}
           title="Mostrar ou ocultar números das quadras de Itaipuaçu"
         >
+          <Layers size={15} />
           <span>{showQuadras ? 'Quadras: ON' : 'Quadras: OFF'}</span>
         </button>
 
@@ -1655,7 +1702,7 @@ export default function MapView({
                 : 'Mostrar apenas quadras que possuem entregas'
             }
           >
-            <span className="active-quadra-icon">🟠</span>
+            <CheckCheck size={15} />
             <span>{showOnlyActiveQuadras ? `Só Ativas (${activeQuadrasCount})` : 'Só Ativas'}</span>
           </button>
         )}
@@ -1671,7 +1718,7 @@ export default function MapView({
             }}
             title={adjustMode ? 'Arrasto ativado: mova qualquer quadra' : 'Ativar modo de arrastar quadras'}
           >
-            <span className="adjust-icon">{adjustMode ? '✋' : '📍'}</span>
+            <Move size={15} />
             <span>{adjustMode ? 'Arrastar Ativo' : 'Ajustar'}</span>
           </button>
         )}
@@ -1686,14 +1733,14 @@ export default function MapView({
             }}
             title={isAddingQuadra ? 'Cancelar inserção' : 'Adicionar um novo número de quadra no mapa'}
           >
-            <span className="add-icon">{isAddingQuadra ? '✕' : '➕'}</span>
+            {isAddingQuadra ? <X size={15} /> : <Plus size={15} />}
             <span>{isAddingQuadra ? 'Cancelar' : 'Add Número'}</span>
           </button>
         )}
 
         {showQuadras && (
           <div className="quadra-search-box">
-            <span className="search-icon">🔍</span>
+            <Search size={14} className="search-icon" />
             <input
               type="text"
               placeholder="Buscar Quadra (ex: 40)..."
@@ -2345,10 +2392,23 @@ export default function MapView({
         </div>
       )}
 
-      {/* Mini Card Flutuante de Endereço Selecionado */}
+      {/* Mini Card Flutuante / Bottom Sheet de Endereço Selecionado */}
       {selectedAddress && !draggingQuadra && pendingEditsList.length === 0 && !repositioningStop && (
-        <div className="map-selected-card">
-          {/* Linha de info + fechar */}
+        <div className={`map-selected-card ${isBottomSheetExpanded ? 'is-expanded' : ''}`}>
+          {/* Barra de Puxar Estilo Bottom Sheet (Arrastável / Clicável) */}
+          <div
+            className="bottom-sheet-handle-bar"
+            onClick={() => setIsBottomSheetExpanded((prev) => !prev)}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            role="button"
+            tabIndex={0}
+            title={isBottomSheetExpanded ? 'Recolher detalhes' : 'Puxar para cima (50% da tela)'}
+          >
+            <div className="bottom-sheet-handle" />
+          </div>
+
+          {/* Linha de info + botões de topo */}
           <div className="card-top-row">
             <div className="card-info">
               <div className="card-meta">
@@ -2356,11 +2416,13 @@ export default function MapView({
                   Parada #{selectedStopNumber || selectedAddress.originalRow}
                 </span>
                 {(selectedGroup?.isDelivered || selectedAddress.delivered) && (
-                  <span className="card-tag delivered">✅ Entregue</span>
+                  <span className="card-tag delivered">
+                    <CheckCircle2 size={11} /> Entregue
+                  </span>
                 )}
                 {selectedGroup && selectedGroup.packageCount > 1 && (
                   <span className="card-tag pkg-count">
-                    📦 {selectedGroup.packageCount} pkgs
+                    <Package size={11} /> {selectedGroup.packageCount} pkgs
                   </span>
                 )}
                 {selectedAddress.quadra && (
@@ -2370,7 +2432,7 @@ export default function MapView({
                   <span className="card-tag lote">L{selectedAddress.lote}</span>
                 )}
                 {selectedAddress.isManuallyAdjusted && (
-                  <span className="card-tag adjusted">📌</span>
+                  <span className="card-tag adjusted" title="Posição ajustada manualmente">📌</span>
                 )}
               </div>
               {selectedAddress.recipient && (
@@ -2381,17 +2443,31 @@ export default function MapView({
                 {selectedAddress.neighborhood ? ` · ${selectedAddress.neighborhood}` : ''}
               </p>
             </div>
-            <button
-              type="button"
-              className="card-btn-close"
-              onClick={() => onSelect && onSelect(null, { pan: false })}
-              title="Fechar"
-            >
-              ✕
-            </button>
+
+            <div className="card-top-actions">
+              <button
+                type="button"
+                className="card-btn-expand"
+                onClick={() => setIsBottomSheetExpanded((prev) => !prev)}
+                title={isBottomSheetExpanded ? 'Recolher detalhes' : 'Ver mais informações (puxar para cima)'}
+              >
+                {isBottomSheetExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+              </button>
+              <button
+                type="button"
+                className="card-btn-close"
+                onClick={() => {
+                  setIsBottomSheetExpanded(false);
+                  if (onSelect) onSelect(null, { pan: false });
+                }}
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
 
-          {/* Linha de ações */}
+          {/* Linha de ações principais */}
           <div className="card-actions">
             {onConfirmDelivery && (
               <button
@@ -2407,7 +2483,17 @@ export default function MapView({
                     : 'Confirmar entrega deste pino'
                 }
               >
-                {selectedGroup?.isDelivered ? '↩️ Entregue' : '✓ Confirmar'}
+                {selectedGroup?.isDelivered ? (
+                  <>
+                    <RotateCcw size={14} />
+                    <span>Entregue</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={14} />
+                    <span>Confirmar</span>
+                  </>
+                )}
               </button>
             )}
             {onUpdateAddress && (
@@ -2424,24 +2510,38 @@ export default function MapView({
                   }
                   title="Editar informações e coordenadas deste pino"
                 >
-                  ✏️ Editar
+                  <Edit3 size={14} />
+                  <span>Editar</span>
                 </button>
-                <button
-                  type="button"
-                  className="card-btn-action move-pin"
-                  onClick={() => {
-                    setIsAddingQuadra(false);
-                    setPendingAddPoint(null);
-                    setRepositioningStop({
-                      address: selectedAddress,
-                      stopNumber: selectedStopNumber || selectedAddress.originalRow,
-                      targetRows: selectedGroup?.rowIds || [selectedAddress.originalRow],
-                    });
-                  }}
-                  title="Mover pino para outro ponto no mapa"
-                >
-                  🎯 Mover
-                </button>
+                {!selectedGroup?.isDelivered ? (
+                  <button
+                    type="button"
+                    className="card-btn-action move-pin"
+                    onClick={() => {
+                      setIsAddingQuadra(false);
+                      setPendingAddPoint(null);
+                      setRepositioningStop({
+                        address: selectedAddress,
+                        stopNumber: selectedStopNumber || selectedAddress.originalRow,
+                        targetRows: selectedGroup?.rowIds || [selectedAddress.originalRow],
+                      });
+                    }}
+                    title="Mover pino para outro ponto no mapa"
+                  >
+                    <Move size={14} />
+                    <span>Mover</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="card-btn-action move-pin disabled"
+                    disabled
+                    title="Pino já entregue (bloqueado contra movimentação)"
+                  >
+                    <Move size={14} />
+                    <span>Entregue</span>
+                  </button>
+                )}
               </>
             )}
             {selectedAddress.coordinates && (
@@ -2463,7 +2563,8 @@ export default function MapView({
                   }}
                   title="Navegar no Google Maps"
                 >
-                  🗺️ Maps
+                  <MapIcon size={14} />
+                  <span>Maps</span>
                 </button>
                 <button
                   type="button"
@@ -2482,7 +2583,7 @@ export default function MapView({
                   }}
                   title="Navegar no Waze"
                 >
-                  🚗 Waze
+                  <span>🚗 Waze</span>
                 </button>
               </>
             )}
@@ -2492,10 +2593,124 @@ export default function MapView({
                 className="card-btn-action phone"
                 title="Ligar para o cliente"
               >
-                📞 Ligar
+                <Phone size={14} />
+                <span>Ligar</span>
               </a>
             )}
           </div>
+
+          {/* Seção Expandida (Até ~50% da tela) com Detalhes Completos */}
+          {isBottomSheetExpanded && (
+            <div className="card-expanded-content">
+              <div className="expanded-divider" />
+
+              {/* Informações completas de Endereço */}
+              <div className="expanded-section">
+                <h5 className="expanded-section-title">
+                  <MapPin size={14} /> Endereço Completo
+                </h5>
+                <div className="expanded-address-details">
+                  <p className="detail-row">
+                    <strong>Rua:</strong> {selectedAddress.street || 'Não informada'}
+                    {selectedAddress.number && ` · Nº ${selectedAddress.number}`}
+                  </p>
+                  {(selectedAddress.quadra || selectedAddress.lote) && (
+                    <p className="detail-row">
+                      <strong>Loteamento:</strong>
+                      {selectedAddress.quadra && ` Quadra ${selectedAddress.quadra}`}
+                      {selectedAddress.lote && ` · Lote ${selectedAddress.lote}`}
+                    </p>
+                  )}
+                  {selectedAddress.complement && (
+                    <p className="detail-row">
+                      <strong>Complemento:</strong> {selectedAddress.complement}
+                    </p>
+                  )}
+                  {selectedAddress.neighborhood && (
+                    <p className="detail-row">
+                      <strong>Bairro:</strong> {selectedAddress.neighborhood}
+                    </p>
+                  )}
+                  {selectedAddress.zipCode && (
+                    <p className="detail-row">
+                      <strong>CEP:</strong> {selectedAddress.zipCode}
+                    </p>
+                  )}
+                  {selectedAddress.coordinates && (
+                    <p className="detail-row font-mono coords">
+                      <strong>GPS:</strong> {selectedAddress.coordinates.lat.toFixed(6)}, {selectedAddress.coordinates.lng.toFixed(6)}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Lista de múltiplos pacotes nesta parada */}
+              {selectedGroup && selectedGroup.addresses && selectedGroup.addresses.length > 1 && (
+                <div className="expanded-section">
+                  <h5 className="expanded-section-title">
+                    <Package size={14} /> Pacotes Agrupados nesta Parada ({selectedGroup.addresses.length})
+                  </h5>
+                  <div className="expanded-packages-list">
+                    {selectedGroup.addresses.map((pkgAddr, idx) => (
+                      <div
+                        key={pkgAddr.originalRow || idx}
+                        className={`expanded-pkg-item ${pkgAddr.delivered ? 'is-delivered' : ''}`}
+                      >
+                        <div className="pkg-item-info">
+                          <span className="pkg-idx">#{idx + 1}</span>
+                          <span className="pkg-recipient">{pkgAddr.recipient || `Pacote #${pkgAddr.originalRow}`}</span>
+                          {pkgAddr.orderId && <span className="pkg-order">{pkgAddr.orderId}</span>}
+                        </div>
+                        <button
+                          type="button"
+                          className={`pkg-toggle-btn ${pkgAddr.delivered ? 'delivered' : ''}`}
+                          onClick={() => onConfirmDelivery && onConfirmDelivery([pkgAddr.originalRow], !pkgAddr.delivered)}
+                        >
+                          {pkgAddr.delivered ? '✓ Entregue' : 'Confirmar'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Contato com o Destinatário */}
+              {selectedAddress.phone && (
+                <div className="expanded-section">
+                  <h5 className="expanded-section-title">
+                    <Phone size={14} /> Contato do Destinatário
+                  </h5>
+                  <div className="expanded-contact-buttons">
+                    <a
+                      href={`tel:${selectedAddress.phone.replace(/\D/g, '')}`}
+                      className="contact-btn call"
+                    >
+                      <Phone size={14} /> Ligar ({selectedAddress.phone})
+                    </a>
+                    <a
+                      href={`https://wa.me/55${selectedAddress.phone.replace(/\D/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="contact-btn whatsapp"
+                    >
+                      <MessageCircle size={14} /> WhatsApp
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Botão para recolher a folha de volta ao estado compacto */}
+              <div className="expanded-footer">
+                <button
+                  type="button"
+                  className="btn-collapse-sheet"
+                  onClick={() => setIsBottomSheetExpanded(false)}
+                >
+                  <ChevronDown size={15} /> Recolher Detalhes
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
