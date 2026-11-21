@@ -253,17 +253,27 @@
   }
 }
 
-/* Marcadores de Quadras de Itaipuaçu (Verde como na foto e no PDF) */
-.quadra-div-icon {
+/* Marcadores de Quadras de Itaipuaçu e Entregas (Hardware Accelerated) */
+.quadra-div-icon,
+.quadra-div-marker,
+.delivery-marker-wrapper {
   background: transparent !important;
   border: none !important;
   display: flex !important;
   align-items: center;
   justify-content: center;
   contain: layout style;
+  will-change: transform;
+  pointer-events: auto;
 }
 
-.quadra-div-icon:hover {
+.quadra-div-marker *,
+.quadra-div-icon * {
+  pointer-events: none;
+}
+
+.quadra-div-icon:hover,
+.quadra-div-marker:hover {
   z-index: 2500 !important;
 }
 
@@ -2754,5 +2764,11 @@
 
   .edit-stop-row-3 {
     grid-template-columns: 1fr 1fr;
+  }
+
+  /* Otimização de performance extrema para celular */
+  .quadra-marker-box.has-delivery {
+    animation: none !important;
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.6) !important;
   }
 }

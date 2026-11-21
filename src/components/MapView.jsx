@@ -567,7 +567,6 @@ export default function MapView({
   const quadraPopupNode = useMemo(() => document.createElement('div'), []);
   const deliveryPopupNode = useMemo(() => document.createElement('div'), []);
   const [currentBounds, setCurrentBounds] = useState(null);
-  const rafIdRef = useRef(null);
   const lastFittedRouteVersionRef = useRef(null);
   const lastCenterRef = useRef(null);
 
@@ -1007,7 +1006,9 @@ export default function MapView({
     });
 
     map.on('moveend', () => {
-      setCurrentBounds(map.getBounds());
+      if (stateRef.current.searchedQuadra) {
+        setCurrentBounds(map.getBounds());
+      }
     });
 
     // Clique no fundo do mapa
@@ -1105,15 +1106,28 @@ export default function MapView({
     }
 
     const bounds = map.getBounds();
-    const padLng = (bounds.getEast() - bounds.getWest()) * 0.25;
-    const padLat = (bounds.getNorth() - bounds.getSouth()) * 0.25;
+    const zoom = map.getZoom();
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+
+    // Em zoom mais afastado (visão geral da cidade/rota), exibir apenas quadras prioritárias
+    // (com entregas ativas, buscada ou em edição). As 1.170 quadras detalhadas aparecem
+    // ao dar zoom na rua/bairro (zoom >= 14.5), ou quando o modo Ajustar estiver ativo.
+    const isZoomedOut = zoom < (isMobile ? 14.8 : 14.2) && !st.adjustMode;
+
+    // Margem reduzida (5% no mobile / 8% no desktop) para não instanciar centenas de nós fora da tela
+    const padFactor = isMobile ? 0.05 : 0.08;
+    const padLng = (bounds.getEast() - bounds.getWest()) * padFactor;
+    const padLat = (bounds.getNorth() - bounds.getSouth()) * padFactor;
     const minLng = bounds.getWest() - padLng;
     const maxLng = bounds.getEast() + padLng;
     const minLat = bounds.getSouth() - padLat;
     const maxLat = bounds.getNorth() + padLat;
 
+    const centerLng = (bounds.getWest() + bounds.getEast()) / 2;
+    const centerLat = (bounds.getSouth() + bounds.getNorth()) / 2;
+
     const desiredKeys = new Set();
-    const itemsToRender = [];
+    const candidateItems = [];
 
     for (let i = 0; i < st.cleanQuadras.length; i++) {
       const q = st.cleanQuadras[i];
@@ -1124,18 +1138,45 @@ export default function MapView({
 
       if (st.showOnlyActiveQuadras && !hasDelivery) continue;
 
-      const inBounds = q.lng >= minLng && q.lng <= maxLng && q.lat >= minLat && q.lat <= maxLat;
-      const isHighlighted = st.searchedQuadra && q._label === st.searchedQuadra;
+      const isHighlighted = Boolean(st.searchedQuadra && q._label === st.searchedQuadra);
+      const isPendingSave = Boolean(q.isPendingSave);
 
-      // Mantém sempre quadras visíveis na tela ou que tenham entregas
-      if (inBounds || hasDelivery || isHighlighted || q.isPendingSave) {
-        desiredKeys.add(q._key);
-        itemsToRender.push({
+      // Com zoom afastado e sem estar em modo de ajuste, renderiza apenas quadras chave
+      if (isZoomedOut && !hasDelivery && !isHighlighted && !isPendingSave) {
+        continue;
+      }
+
+      const inBounds = q.lng >= minLng && q.lng <= maxLng && q.lat >= minLat && q.lat <= maxLat;
+
+      if (inBounds || hasDelivery || isHighlighted || isPendingSave) {
+        const distSq = (q.lng - centerLng) ** 2 + (q.lat - centerLat) ** 2;
+        const priority = isHighlighted ? 0 : isPendingSave ? 1 : hasDelivery ? 2 : 3;
+
+        candidateItems.push({
           q,
           hasDelivery,
-          isHighlighted: Boolean(isHighlighted),
+          isHighlighted,
+          isPendingSave,
+          priority,
+          distSq,
         });
       }
+    }
+
+    // Limite máximo de marcadores no DOM para garantir 60 FPS contínuos no celular
+    const maxMarkers = isMobile ? (st.adjustMode ? 140 : 80) : (st.adjustMode ? 300 : 180);
+    let itemsToRender = candidateItems;
+
+    if (candidateItems.length > maxMarkers) {
+      candidateItems.sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        return a.distSq - b.distSq;
+      });
+      itemsToRender = candidateItems.slice(0, maxMarkers);
+    }
+
+    for (let i = 0; i < itemsToRender.length; i++) {
+      desiredKeys.add(itemsToRender[i].q._key);
     }
 
     // 1. Remove marcadores fora da área visível (exceto os que estão sendo arrastados)
@@ -1418,16 +1459,22 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
+    let moveThrottleTimer = null;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+
+    // No desktop atualiza suavemente; no mobile NÃO re-sincroniza durante o arrasto contínuo para manter 60 FPS nativo
     const handleCameraMove = () => {
-      if (!rafIdRef.current) {
-        rafIdRef.current = requestAnimationFrame(() => {
-          rafIdRef.current = null;
-          syncQuadraMarkers();
-        });
-      }
+      if (isMobile) return;
+      if (moveThrottleTimer) return;
+      moveThrottleTimer = setTimeout(() => {
+        moveThrottleTimer = null;
+        syncQuadraMarkers();
+      }, 200);
     };
 
-    map.on('move', handleCameraMove);
+    if (!isMobile) {
+      map.on('move', handleCameraMove);
+    }
     map.on('moveend', syncQuadraMarkers);
     map.on('zoomend', syncQuadraMarkers);
     map.on('resize', syncQuadraMarkers);
@@ -1436,16 +1483,33 @@ export default function MapView({
     syncDeliveryMarkers();
 
     return () => {
-      map.off('move', handleCameraMove);
+      if (!isMobile) {
+        map.off('move', handleCameraMove);
+      }
       map.off('moveend', syncQuadraMarkers);
       map.off('zoomend', syncQuadraMarkers);
       map.off('resize', syncQuadraMarkers);
-      if (rafIdRef.current) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
+      if (moveThrottleTimer) {
+        clearTimeout(moveThrottleTimer);
+        moveThrottleTimer = null;
       }
     };
   }, [mapLoaded, syncQuadraMarkers, syncDeliveryMarkers]);
+
+  // Re-sincroniza marcadores de quadras quando o modo, filtro ou busca mudar
+  useEffect(() => {
+    if (mapLoaded) {
+      syncQuadraMarkers();
+    }
+  }, [
+    mapLoaded,
+    showQuadras,
+    showOnlyActiveQuadras,
+    adjustMode,
+    searchedQuadra,
+    cleanQuadras,
+    syncQuadraMarkers,
+  ]);
 
   // Re-sincroniza marcadores de entrega sempre que os grupos mudarem
   useEffect(() => {
