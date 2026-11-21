@@ -567,7 +567,6 @@ export default function MapView({
   const [confirmDeleteKey, setConfirmDeleteKey] = useState(null);
 
   // Edições de entregas
-  const [activePopupDelivery, setActivePopupDelivery] = useState(null);
   const [editingStop, setEditingStop] = useState(null);
   const [repositioningStop, setRepositioningStop] = useState(null);
   const [isBottomSheetExpanded, setIsBottomSheetExpanded] = useState(false);
@@ -607,14 +606,8 @@ export default function MapView({
   const deliveryMarkersRef = useRef(new Map());
   const userLocMarkerRef = useRef(null);
   const quadraPopupRef = useRef(null);
-  const deliveryPopupRef = useRef(null);
   const lastMarkerClickTimeRef = useRef(0);
   const quadraPopupNode = useMemo(() => {
-    const node = document.createElement('div');
-    node.className = 'custom-popup-portal-root';
-    return node;
-  }, []);
-  const deliveryPopupNode = useMemo(() => {
     const node = document.createElement('div');
     node.className = 'custom-popup-portal-root';
     return node;
@@ -1025,12 +1018,12 @@ export default function MapView({
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true }), 'bottom-right');
 
-    // Popups com DOM containers para React Portals
+    // Popup com DOM container para React Portal da Quadra
     const qPopup = new maplibregl.Popup({
       offset: 14,
       closeButton: true,
       closeOnClick: false,
-      maxWidth: '340px',
+      maxWidth: '360px',
       className: 'custom-popup',
     });
     qPopup.setDOMContent(quadraPopupNode);
@@ -1039,22 +1032,6 @@ export default function MapView({
       setConfirmDeleteKey(null);
     });
     quadraPopupRef.current = qPopup;
-
-    const dPopup = new maplibregl.Popup({
-      offset: 30,
-      closeButton: true,
-      closeOnClick: false,
-      maxWidth: '360px',
-      className: 'custom-popup',
-    });
-    dPopup.setDOMContent(deliveryPopupNode);
-    dPopup.on('close', () => {
-      setActivePopupDelivery(null);
-      if (onSelect) {
-        onSelect(null, { pan: false });
-      }
-    });
-    deliveryPopupRef.current = dPopup;
 
     map.on('load', () => {
       setMapLoaded(true);
@@ -1093,22 +1070,19 @@ export default function MapView({
         return;
       }
 
-      // Clique real no fundo vazio do mapa: fecha popups e deseleciona parada
+      // Clique real no fundo vazio do mapa: fecha popup da quadra e deseleciona parada
       setConfirmDeleteKey(null);
       setActivePopupQuadra(null);
-      setActivePopupDelivery(null);
       if (onSelect) {
         onSelect(null, { pan: false });
       }
       if (qPopup.isOpen()) qPopup.remove();
-      if (dPopup.isOpen()) dPopup.remove();
     });
 
     mapRef.current = map;
 
     return () => {
       if (qPopup.isOpen()) qPopup.remove();
-      if (dPopup.isOpen()) dPopup.remove();
       map.remove();
       mapRef.current = null;
       setMapLoaded(false);
@@ -1169,25 +1143,20 @@ export default function MapView({
     }
   }, [routeVersion, addresses]);
 
-  // Evita que cliques dentro dos nós dos popups propaguem para o mapa
+  // Evita que cliques dentro do nó do popup propaguem para o mapa
   useEffect(() => {
     const stopBubble = (e) => {
       e.stopPropagation();
       lastMarkerClickTimeRef.current = Date.now();
     };
     const qNode = quadraPopupNode;
-    const dNode = deliveryPopupNode;
     qNode.addEventListener('click', stopBubble);
-    dNode.addEventListener('click', stopBubble);
     qNode.addEventListener('pointerdown', stopBubble);
-    dNode.addEventListener('pointerdown', stopBubble);
     return () => {
       qNode.removeEventListener('click', stopBubble);
-      dNode.removeEventListener('click', stopBubble);
       qNode.removeEventListener('pointerdown', stopBubble);
-      dNode.removeEventListener('pointerdown', stopBubble);
     };
-  }, [quadraPopupNode, deliveryPopupNode]);
+  }, [quadraPopupNode]);
 
   // Sincroniza abertura e posição do popup de Quadra
   useEffect(() => {
@@ -1206,33 +1175,6 @@ export default function MapView({
       }
     }
   }, [activePopupQuadra]);
-
-  // Sincroniza abertura e posição do popup de Entrega
-  useEffect(() => {
-    const map = mapRef.current;
-    const popup = deliveryPopupRef.current;
-    if (!map || !popup) return;
-
-    if (activePopupDelivery && activePopupDelivery.coordinates) {
-      popup.setLngLat([activePopupDelivery.coordinates.lng, activePopupDelivery.coordinates.lat]);
-      if (!popup.isOpen()) {
-        popup.addTo(map);
-      }
-    } else {
-      if (popup.isOpen()) {
-        popup.remove();
-      }
-    }
-  }, [activePopupDelivery]);
-
-  // Se uma parada for selecionada na rota, sincroniza com o popup de entrega
-  useEffect(() => {
-    if (selectedGroup) {
-      setActivePopupDelivery(selectedGroup);
-    } else {
-      setActivePopupDelivery(null);
-    }
-  }, [selectedGroup]);
 
   // Sincronização em alta performance dos marcadores de Quadras no MapLibre
   const syncQuadraMarkers = useCallback(() => {
@@ -1398,10 +1340,6 @@ export default function MapView({
           }
           if (!current.adjustMode) {
             setConfirmDeleteKey(null);
-            if (deliveryPopupRef.current?.isOpen()) {
-              deliveryPopupRef.current.remove();
-            }
-            setActivePopupDelivery(null);
             if (onSelect) {
               onSelect(null, { pan: false });
             }
@@ -1541,7 +1479,6 @@ export default function MapView({
           if (onSelect) {
             onSelect(targetAddress.originalRow, { pan: false });
           }
-          setActivePopupDelivery(targetGroup);
         });
 
         marker.on('dragend', () => {
@@ -1936,11 +1873,11 @@ export default function MapView({
                   activePopupQuadra.isPendingSave ? 'pending-save-badge' : ''
                 }`}
               >
-                {activePopupQuadra.isPendingSave ? '🔴 Aguardando Salvar' : '📍 Itaipuaçu'}
+                {activePopupQuadra.isPendingSave ? '🔴 Aguardando Salvar' : '📍 ITAIPUAÇU'}
               </span>
               {deliveriesHere.length > 0 && (
                 <span className="popup-badge delivery-tag">
-                  {deliveriesHere.length} {deliveriesHere.length === 1 ? 'entrega' : 'entregas'}
+                  {deliveriesHere.length} {deliveriesHere.length === 1 ? 'ENTREGA' : 'ENTREGAS'}
                 </span>
               )}
             </div>
@@ -2039,6 +1976,9 @@ export default function MapView({
                         className={`popup-delivery-item ${isItemDelivered ? 'is-delivered' : ''}`}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+                            setActivePopupQuadra(null);
+                          }
                           if (onSelect) {
                             onSelect(d.originalRow, { pan: false });
                           }
@@ -2143,256 +2083,6 @@ export default function MapView({
             )}
           </div>,
           quadraPopupNode
-        )}
-
-      {/* Conteúdo do Popup da Parada de Entrega via React Portal */}
-      {activePopupDelivery &&
-        createPortal(
-          (() => {
-            const group = activePopupDelivery;
-            const address = group.primary;
-            const stopNumber = group.stopNumber || 1;
-            const packageCount = group.packageCount || group.items.length;
-            const rowIds = group.rowIds || [address.originalRow];
-            const pendingRowIds = group.items.filter((item) => !item.delivered).map((item) => item.originalRow);
-            const deliveredCount = group.deliveredCount || 0;
-            const isDelivered = Boolean(group.isDelivered);
-            const isPartiallyDelivered = Boolean(group.isPartiallyDelivered);
-            const isManuallyAdjusted = Boolean(group.isManuallyAdjusted);
-            const hasAnyOriginal = group.items.some((item) => item.isManuallyAdjusted && item.originalCoordinates);
-            const targetCoords = {
-              lat: group.coordinates.lat,
-              lng: group.coordinates.lng,
-              label: address.recipient || `Parada #${stopNumber}`,
-            };
-
-            return (
-              <div className="popup-card">
-                <div className="popup-header">
-                  <div className="popup-header-badges">
-                    <span className="popup-badge">Parada #{stopNumber}</span>
-                    {address.quadra && <span className="popup-tag quadra">Quadra {address.quadra}</span>}
-                    {address.lote && <span className="popup-tag lote">Lote {address.lote}</span>}
-                    {isDelivered ? (
-                      <span className="popup-badge delivered-badge">✅ Entregue</span>
-                    ) : isPartiallyDelivered ? (
-                      <span className="popup-badge partial-badge">⏳ {deliveredCount}/{packageCount} entregues</span>
-                    ) : null}
-                    {packageCount > 1 && (
-                      <span className="popup-badge pkg-count-badge">📦 {packageCount} pacotes</span>
-                    )}
-                    {isManuallyAdjusted ? (
-                      <span className="popup-badge adjusted-badge">📌 Ajustado</span>
-                    ) : (
-                      <span className="popup-badge drag-badge">✋ Arrastável</span>
-                    )}
-                  </div>
-                  {packageCount === 1 && address.orderId && (
-                    <span className="popup-order">{address.orderId}</span>
-                  )}
-                </div>
-
-                <h4 className="popup-title">
-                  {packageCount > 1
-                    ? `${packageCount} pacotes neste endereço`
-                    : address.recipient || `Endereço #${address.originalRow}`}
-                </h4>
-
-                <div className="popup-drag-hint delivery-drag-hint">
-                  ✋ <strong>Posição editável:</strong> Arraste este pino para qualquer local do mapa ou clique em <strong>Editar</strong>.
-                </div>
-
-                <div className="popup-body">
-                  <p className="popup-address">
-                    <strong>{address.street}</strong>
-                    {address.number ? `, Nº ${address.number}` : ''}
-                  </p>
-
-                  {(address.quadra || address.lote) && (
-                    <div className="popup-quadra-tags">
-                      {address.quadra && <span className="popup-tag quadra">Quadra {address.quadra}</span>}
-                      {address.lote && <span className="popup-tag lote">Lote {address.lote}</span>}
-                    </div>
-                  )}
-
-                  {packageCount === 1 && address.complement && (
-                    <p className="popup-meta">Complemento: {address.complement}</p>
-                  )}
-
-                  <p className="popup-meta">
-                    {[address.neighborhood, address.city, address.state].filter(Boolean).join(' • ')}
-                  </p>
-
-                  {address.zipCode && (
-                    <p className="popup-meta font-mono">CEP: {address.zipCode}</p>
-                  )}
-
-                  <p className="popup-meta font-mono">
-                    {group.coordinates.lat.toFixed(6)}, {group.coordinates.lng.toFixed(6)}
-                  </p>
-
-                  {packageCount === 1 && address.phone && (
-                    <p className="popup-phone">
-                      <a href={`tel:${address.phone.replace(/\D/g, '')}`}>
-                        📞 {address.phone}
-                      </a>
-                    </p>
-                  )}
-
-                  {packageCount > 1 && (
-                    <div className="popup-packages-list" onClick={(e) => e.stopPropagation()}>
-                      {group.items.map((item) => (
-                        <div
-                          key={`pkg-${item.originalRow}`}
-                          className={`popup-package-item ${item.delivered ? 'is-item-delivered' : ''}`}
-                        >
-                          <div className="popup-pkg-top">
-                            <span className="popup-pkg-row">#{item.originalRow}</span>
-                            <strong className="popup-pkg-name">
-                              {item.recipient || `Pacote #${item.originalRow}`}
-                            </strong>
-                            {item.orderId && <span className="popup-pkg-order">{item.orderId}</span>}
-                            {onConfirmDelivery && (
-                              <button
-                                type="button"
-                                className={`popup-pkg-confirm-btn ${item.delivered ? 'is-done' : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onConfirmDelivery(item.originalRow, !item.delivered);
-                                }}
-                                title={item.delivered ? 'Desfazer entrega deste pacote' : 'Confirmar entrega deste pacote'}
-                              >
-                                {item.delivered ? '↩️' : '✓'}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="popup-pkg-edit-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingStop({ stop: item, stopNumber, group });
-                              }}
-                              title="Editar este pacote"
-                            >
-                              ✏️
-                            </button>
-                          </div>
-                          {(item.delivered || item.complement || item.phone) && (
-                            <div className="popup-pkg-sub">
-                              {item.delivered && <span className="popup-pkg-done-tag">✅ Concluído</span>}
-                              {item.complement && <span>{item.complement}</span>}
-                              {item.phone && (
-                                <a href={`tel:${item.phone.replace(/\D/g, '')}`}>📞 {item.phone}</a>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {onConfirmDelivery && (
-                  <div className="popup-delivery-confirm-wrap" onClick={(e) => e.stopPropagation()}>
-                    {isDelivered ? (
-                      <button
-                        type="button"
-                        className="popup-confirm-delivery-btn is-done"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onConfirmDelivery(rowIds, false);
-                        }}
-                        title="Desfazer entrega e devolver para lista de Entregas"
-                      >
-                        ↩️ Entregue · Desfazer Confirmação
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="popup-confirm-delivery-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (deliveryPopupRef.current?.isOpen()) deliveryPopupRef.current.remove();
-                          onConfirmDelivery(pendingRowIds.length > 0 ? pendingRowIds : rowIds, true);
-                        }}
-                        title="Confirmar entrega"
-                      >
-                        ✓ Confirmar Entrega
-                        {pendingRowIds.length > 1
-                          ? ` (${pendingRowIds.length} pacotes)`
-                          : isPartiallyDelivered
-                            ? ` (restante #${pendingRowIds[0]})`
-                            : ''}
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div className="popup-actions">
-                  <button
-                    type="button"
-                    className="popup-btn gmaps"
-                    onClick={() => {
-                      handleNavigateTarget(targetCoords, 'google');
-                    }}
-                    title="Navegar no Google Maps"
-                  >
-                    Google Maps ↗
-                  </button>
-                  <button
-                    type="button"
-                    className="popup-btn waze"
-                    onClick={() => {
-                      handleNavigateTarget(targetCoords, 'waze');
-                    }}
-                    title="Navegar com Waze"
-                  >
-                    Waze ↗
-                  </button>
-                </div>
-
-                <div className="popup-edit-actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="popup-edit-btn primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingStop({ stop: address, stopNumber, group });
-                    }}
-                    title="Editar endereço, quadra/lote e posição desta parada"
-                  >
-                    ✏️ Editar {packageCount > 1 ? `#${address.originalRow}` : 'Parada'}
-                  </button>
-                  <button
-                    type="button"
-                    className="popup-edit-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (deliveryPopupRef.current?.isOpen()) deliveryPopupRef.current.remove();
-                      setRepositioningStop({ address, stopNumber, targetRows: rowIds });
-                    }}
-                    title="Clicar em outro ponto do mapa para mover este pino"
-                  >
-                    🎯 Mover no Mapa
-                  </button>
-                  {hasAnyOriginal && onUpdateAddress && (
-                    <button
-                      type="button"
-                      className="popup-edit-btn reset"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onUpdateAddress(rowIds, { restoreOriginal: true });
-                      }}
-                      title="Voltar este pino para a coordenada original importada"
-                    >
-                      ↩️ Posição Original
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })(),
-          deliveryPopupNode
         )}
 
       {/* Modal de Edição de Entrega */}

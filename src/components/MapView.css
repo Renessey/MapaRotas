@@ -1020,6 +1020,10 @@
   background: white;
 }
 
+.quadra-popup-card .popup-header {
+  padding-right: 28px;
+}
+
 .popup-header {
   display: flex;
   align-items: center;
@@ -2976,6 +2980,33 @@
   .btn-discard-quadra-edit {
     text-align: center;
     justify-content: center;
+  }
+
+  /* Modal de Quadra SEMPRE Centralizado na Tela em Celulares */
+  .custom-popup.maplibregl-popup {
+    position: fixed !important;
+    top: calc(50% - 22px) !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    width: min(360px, calc(100vw - 28px)) !important;
+    max-width: 360px !important;
+    max-height: calc(85vh - 20px) !important;
+    margin: 0 !important;
+    z-index: 3500 !important;
+    pointer-events: auto !important;
+  }
+
+  .custom-popup.maplibregl-popup .maplibregl-popup-content {
+    max-height: calc(85vh - 20px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-radius: 18px !important;
+    box-shadow: 0 16px 40px -6px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+    padding: 16px 14px 14px 14px !important;
+  }
+
+  .custom-popup.maplibregl-popup .maplibregl-popup-tip {
+    display: none !important;
   }
 
   /* Bottom Sheet Nativo de Celular */
