@@ -972,14 +972,25 @@
 }
 
 /* Popups Customizados */
+.maplibregl-popup,
+.custom-popup {
+  z-index: 3500 !important;
+}
+
 .custom-popup .leaflet-popup-content-wrapper,
 .custom-popup .maplibregl-popup-content {
   padding: 0;
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.18);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   background: white;
+  pointer-events: auto !important;
+}
+
+.custom-popup .maplibregl-popup-tip {
+  border-top-color: white !important;
+  border-bottom-color: white !important;
 }
 
 .custom-popup .leaflet-popup-content {
@@ -988,15 +999,16 @@
 }
 
 .custom-popup .maplibregl-popup-close-button {
-  font-size: 18px;
+  font-size: 20px;
   color: #64748b;
-  padding: 6px 10px;
-  top: 4px;
-  right: 4px;
+  padding: 6px 12px;
+  top: 6px;
+  right: 6px;
   border: none;
   background: transparent;
   cursor: pointer;
-  z-index: 10;
+  z-index: 20;
+  pointer-events: auto !important;
 }
 
 .custom-popup .maplibregl-popup-close-button:hover {

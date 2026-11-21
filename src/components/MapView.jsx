@@ -608,8 +608,17 @@ export default function MapView({
   const userLocMarkerRef = useRef(null);
   const quadraPopupRef = useRef(null);
   const deliveryPopupRef = useRef(null);
-  const quadraPopupNode = useMemo(() => document.createElement('div'), []);
-  const deliveryPopupNode = useMemo(() => document.createElement('div'), []);
+  const lastMarkerClickTimeRef = useRef(0);
+  const quadraPopupNode = useMemo(() => {
+    const node = document.createElement('div');
+    node.className = 'custom-popup-portal-root';
+    return node;
+  }, []);
+  const deliveryPopupNode = useMemo(() => {
+    const node = document.createElement('div');
+    node.className = 'custom-popup-portal-root';
+    return node;
+  }, []);
   const [currentBounds, setCurrentBounds] = useState(null);
   const lastFittedRouteVersionRef = useRef(null);
   const lastCenterRef = useRef(null);
@@ -1041,6 +1050,9 @@ export default function MapView({
     dPopup.setDOMContent(deliveryPopupNode);
     dPopup.on('close', () => {
       setActivePopupDelivery(null);
+      if (onSelect) {
+        onSelect(null, { pan: false });
+      }
     });
     deliveryPopupRef.current = dPopup;
 
@@ -1055,15 +1067,39 @@ export default function MapView({
       }
     });
 
-    // Clique no fundo do mapa
+    // Clique no fundo do mapa (não fecha se clicou em marcador ou popup)
     map.on('click', (e) => {
+      // 1. Se acabou de clicar em um marcador, ignora o clique de fundo do mapa
+      if (Date.now() - lastMarkerClickTimeRef.current < 400) {
+        return;
+      }
+
+      // 2. Se o clique foi originado em um marcador ou dentro do popup, não fecha
+      const target = e.originalEvent?.target;
+      if (
+        target &&
+        (target.closest('.maplibregl-popup') ||
+          target.closest('.maplibregl-marker') ||
+          target.closest('.quadra-div-marker') ||
+          target.closest('.delivery-marker-wrapper') ||
+          target.closest('.custom-marker-wrapper'))
+      ) {
+        return;
+      }
+
       const st = stateRef.current;
       if (st.isPickingMapSpot) {
         handlePickMapSpot({ lat: e.lngLat.lat, lng: e.lngLat.lng });
         return;
       }
+
+      // Clique real no fundo vazio do mapa: fecha popups e deseleciona parada
       setConfirmDeleteKey(null);
       setActivePopupQuadra(null);
+      setActivePopupDelivery(null);
+      if (onSelect) {
+        onSelect(null, { pan: false });
+      }
       if (qPopup.isOpen()) qPopup.remove();
       if (dPopup.isOpen()) dPopup.remove();
     });
@@ -1132,6 +1168,71 @@ export default function MapView({
       console.warn('Erro ao enquadrar mapa:', e);
     }
   }, [routeVersion, addresses]);
+
+  // Evita que cliques dentro dos nós dos popups propaguem para o mapa
+  useEffect(() => {
+    const stopBubble = (e) => {
+      e.stopPropagation();
+      lastMarkerClickTimeRef.current = Date.now();
+    };
+    const qNode = quadraPopupNode;
+    const dNode = deliveryPopupNode;
+    qNode.addEventListener('click', stopBubble);
+    dNode.addEventListener('click', stopBubble);
+    qNode.addEventListener('pointerdown', stopBubble);
+    dNode.addEventListener('pointerdown', stopBubble);
+    return () => {
+      qNode.removeEventListener('click', stopBubble);
+      dNode.removeEventListener('click', stopBubble);
+      qNode.removeEventListener('pointerdown', stopBubble);
+      dNode.removeEventListener('pointerdown', stopBubble);
+    };
+  }, [quadraPopupNode, deliveryPopupNode]);
+
+  // Sincroniza abertura e posição do popup de Quadra
+  useEffect(() => {
+    const map = mapRef.current;
+    const popup = quadraPopupRef.current;
+    if (!map || !popup) return;
+
+    if (activePopupQuadra) {
+      popup.setLngLat([activePopupQuadra.lng, activePopupQuadra.lat]);
+      if (!popup.isOpen()) {
+        popup.addTo(map);
+      }
+    } else {
+      if (popup.isOpen()) {
+        popup.remove();
+      }
+    }
+  }, [activePopupQuadra]);
+
+  // Sincroniza abertura e posição do popup de Entrega
+  useEffect(() => {
+    const map = mapRef.current;
+    const popup = deliveryPopupRef.current;
+    if (!map || !popup) return;
+
+    if (activePopupDelivery && activePopupDelivery.coordinates) {
+      popup.setLngLat([activePopupDelivery.coordinates.lng, activePopupDelivery.coordinates.lat]);
+      if (!popup.isOpen()) {
+        popup.addTo(map);
+      }
+    } else {
+      if (popup.isOpen()) {
+        popup.remove();
+      }
+    }
+  }, [activePopupDelivery]);
+
+  // Se uma parada for selecionada na rota, sincroniza com o popup de entrega
+  useEffect(() => {
+    if (selectedGroup) {
+      setActivePopupDelivery(selectedGroup);
+    } else {
+      setActivePopupDelivery(null);
+    }
+  }, [selectedGroup]);
 
   // Sincronização em alta performance dos marcadores de Quadras no MapLibre
   const syncQuadraMarkers = useCallback(() => {
@@ -1289,6 +1390,7 @@ export default function MapView({
 
         el.addEventListener('click', (e) => {
           e.stopPropagation();
+          lastMarkerClickTimeRef.current = Date.now();
           const current = stateRef.current;
           if (current.isAddingQuadra) {
             handlePickMapSpot({ lat: q.lat, lng: q.lng });
@@ -1296,10 +1398,15 @@ export default function MapView({
           }
           if (!current.adjustMode) {
             setConfirmDeleteKey(null);
-            setActivePopupQuadra(q);
-            if (quadraPopupRef.current) {
-              quadraPopupRef.current.setLngLat([q.lng, q.lat]).addTo(map);
+            if (deliveryPopupRef.current?.isOpen()) {
+              deliveryPopupRef.current.remove();
             }
+            setActivePopupDelivery(null);
+            if (onSelect) {
+              onSelect(null, { pan: false });
+            }
+            const targetQuadra = existingMap.get(key)?.quadra || q;
+            setActivePopupQuadra(targetQuadra);
           }
         });
 
@@ -1333,7 +1440,7 @@ export default function MapView({
         existingMap.set(key, entry);
       }
     }
-  }, [handlePickMapSpot, handleStageQuadraEdit]);
+  }, [handlePickMapSpot, handleStageQuadraEdit, onSelect]);
 
   // Sincronização dos marcadores de Entregas da Rota no MapLibre
   const syncDeliveryMarkers = useCallback(() => {
@@ -1419,20 +1526,22 @@ export default function MapView({
 
         el.addEventListener('click', (e) => {
           e.stopPropagation();
+          lastMarkerClickTimeRef.current = Date.now();
           const current = stateRef.current;
           if (current.isPickingMapSpot) {
             handlePickMapSpot({ lat: group.coordinates.lat, lng: group.coordinates.lng });
             return;
           }
+          if (quadraPopupRef.current?.isOpen()) {
+            quadraPopupRef.current.remove();
+          }
+          setActivePopupQuadra(null);
+          const targetGroup = existingMap.get(key)?.group || group;
+          const targetAddress = targetGroup.primary;
           if (onSelect) {
-            onSelect(address.originalRow, { pan: false });
+            onSelect(targetAddress.originalRow, { pan: false });
           }
-          setActivePopupDelivery(group);
-          if (deliveryPopupRef.current) {
-            deliveryPopupRef.current
-              .setLngLat([group.coordinates.lng, group.coordinates.lat])
-              .addTo(map);
-          }
+          setActivePopupDelivery(targetGroup);
         });
 
         marker.on('dragend', () => {
@@ -1651,11 +1760,18 @@ export default function MapView({
     };
   }, [searchedQuadra, cleanQuadrasBase, viewportSeq, currentBounds]);
 
-  const deliveriesHere = activePopupQuadra
-    ? deliveryQuadrasMap.get(activePopupQuadra._numInt) ||
-      deliveryQuadrasMap.get(activePopupQuadra.rawNumber) ||
-      []
-    : [];
+  const deliveriesHere = useMemo(() => {
+    if (!activePopupQuadra) return [];
+    const fromInt = deliveryQuadrasMap.get(activePopupQuadra._numInt);
+    if (fromInt && fromInt.length > 0) return fromInt;
+    const fromRaw = deliveryQuadrasMap.get(activePopupQuadra.rawNumber);
+    if (fromRaw && fromRaw.length > 0) return fromRaw;
+    const fromNum = deliveryQuadrasMap.get(String(activePopupQuadra.number));
+    if (fromNum && fromNum.length > 0) return fromNum;
+    const fromLabel = deliveryQuadrasMap.get(activePopupQuadra._label);
+    if (fromLabel && fromLabel.length > 0) return fromLabel;
+    return [];
+  }, [activePopupQuadra, deliveryQuadrasMap]);
 
   return (
     <div className="map-container">
@@ -2055,6 +2171,8 @@ export default function MapView({
                 <div className="popup-header">
                   <div className="popup-header-badges">
                     <span className="popup-badge">Parada #{stopNumber}</span>
+                    {address.quadra && <span className="popup-tag quadra">Quadra {address.quadra}</span>}
+                    {address.lote && <span className="popup-tag lote">Lote {address.lote}</span>}
                     {isDelivered ? (
                       <span className="popup-badge delivered-badge">✅ Entregue</span>
                     ) : isPartiallyDelivered ? (
