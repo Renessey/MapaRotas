@@ -2911,33 +2911,342 @@
   color: #ffffff;
 }
 
+/* Barra Superior Mobile: Busca + Menu Hambúrguer de Camadas */
+.mobile-map-top-bar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-map-top-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 1300;
+    pointer-events: none;
+  }
+
+  .mobile-search-pill {
+    pointer-events: auto;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 28px;
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+    padding: 8px 14px;
+    height: 46px;
+    box-sizing: border-box;
+  }
+
+  .mobile-search-icon {
+    color: #64748b;
+    flex-shrink: 0;
+  }
+
+  .mobile-search-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    font-size: 13.5px;
+    font-family: inherit;
+    color: #0f172a;
+    outline: none;
+  }
+
+  .mobile-search-input::placeholder {
+    color: #94a3b8;
+  }
+
+  .mobile-clear-search-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    cursor: pointer;
+    border-radius: 50%;
+  }
+
+  .mobile-search-count-badge {
+    font-size: 10.5px;
+    font-weight: 800;
+    color: #0284c7;
+    background: #e0f2fe;
+    border: 1px solid #bae6fd;
+    padding: 2px 7px;
+    border-radius: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .mobile-layers-hamburger-btn {
+    pointer-events: auto;
+    width: 46px;
+    height: 46px;
+    border-radius: 23px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1e293b;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+
+  .mobile-layers-hamburger-btn:active {
+    transform: scale(0.92);
+  }
+
+  .mobile-layers-hamburger-btn.active {
+    background: #2563eb;
+    color: #ffffff;
+    border-color: #1d4ed8;
+  }
+
+  .mobile-layers-backdrop {
+    pointer-events: auto;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.35);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: 1350;
+    animation: fadeIn 0.18s ease;
+  }
+
+  .mobile-layers-menu {
+    pointer-events: auto;
+    position: fixed;
+    top: 66px;
+    right: 12px;
+    width: min(290px, calc(100vw - 24px));
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 18px;
+    box-shadow: 0 16px 36px -4px rgba(15, 23, 42, 0.25);
+    padding: 14px;
+    z-index: 1400;
+    animation: slideDownMenu 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  @keyframes slideDownMenu {
+    from {
+      opacity: 0;
+      transform: translateY(-10px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .mobile-layers-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #0f172a;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .mobile-layers-close-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-layers-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mobile-layer-option-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1.5px solid transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    width: 100%;
+  }
+
+  .mobile-layer-option-btn:hover,
+  .mobile-layer-option-btn:active {
+    background: #f1f5f9;
+  }
+
+  .mobile-layer-option-btn.active {
+    background: #eff6ff;
+    border-color: #3b82f6;
+  }
+
+  .layer-emoji {
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .layer-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .layer-info strong {
+    font-size: 13px;
+    color: #0f172a;
+  }
+
+  .layer-info small {
+    font-size: 10.5px;
+    color: #64748b;
+  }
+
+  .layer-check-icon {
+    color: #2563eb;
+    flex-shrink: 0;
+  }
+}
+
 /* Responsividade do Mapa */
 @media (max-width: 768px) {
+  /* Botões de Ação no Canto Direito Centralizado Verticalmente (Estilo App) */
   .map-floating-controls {
-    top: 8px;
-    right: 8px;
-    left: 8px;
-    max-width: 100%;
-    gap: 6px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding-bottom: 4px;
+    position: fixed !important;
+    top: 50% !important;
+    right: 12px !important;
+    left: auto !important;
+    bottom: auto !important;
+    transform: translateY(-50%) !important;
+    flex-direction: column !important;
+    width: auto !important;
+    max-width: none !important;
+    gap: 9px !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    z-index: 1200 !important;
+    overflow: visible !important;
+  }
+
+  .map-floating-controls .quadra-search-box,
+  .map-floating-controls .tile-switcher,
+  .map-floating-controls .map-zoom-buttons {
+    display: none !important;
+  }
+
+  .map-floating-controls .map-control-btn {
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 14px !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(226, 232, 240, 0.9) !important;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.16) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 3px 2px !important;
+    gap: 2px !important;
+    cursor: pointer !important;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease !important;
+    flex-shrink: 0 !important;
+  }
+
+  .map-floating-controls .map-control-btn:active {
+    transform: scale(0.92) !important;
+  }
+
+  .map-floating-controls .map-control-btn svg {
+    width: 19px !important;
+    height: 19px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .map-floating-controls .map-control-btn span {
+    display: block !important;
+    font-size: 8px !important;
+    font-weight: 700 !important;
+    max-width: 44px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    line-height: 1 !important;
+  }
+
+  .map-floating-controls .map-control-btn.location-btn.active {
+    background: #eff6ff !important;
+    border-color: #3b82f6 !important;
+    color: #1d4ed8 !important;
+  }
+
+  .map-floating-controls .map-control-btn.quadra-toggle-btn.active {
+    background: #ecfdf5 !important;
+    border-color: #10b981 !important;
+    color: #047857 !important;
+  }
+
+  .map-floating-controls .map-control-btn.only-active-quadras-btn.active {
+    background: #fffbeb !important;
+    border-color: #f59e0b !important;
+    color: #b45309 !important;
+  }
+
+  .map-floating-controls .map-control-btn.adjust-toggle-btn.active {
+    background: #f5f3ff !important;
+    border-color: #8b5cf6 !important;
+    color: #6d28d9 !important;
+  }
+
+  .map-floating-controls .map-control-btn.add-quadra-btn.active {
+    background: #fef2f2 !important;
+    border-color: #ef4444 !important;
+    color: #b91c1c !important;
   }
 
   .map-floating-controls::-webkit-scrollbar {
     display: none;
-  }
-
-  .map-control-btn {
-    padding: 6px 10px;
-    font-size: 11.5px;
-    flex-shrink: 0;
-  }
-
-  .map-control-btn span {
-    display: inline;
   }
 
   .map-control-btn .location-active-dot {

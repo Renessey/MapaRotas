@@ -465,3 +465,55 @@
 .btn-back-deliveries:hover {
   background: #1d4ed8;
 }
+
+/* Responsividade para Celulares (Histórico 100% contido sem cortes) */
+@media (max-width: 768px) {
+  .delivery-history-container {
+    width: 100% !important;
+    max-width: 100vw !important;
+    height: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  .history-header-card {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-top: none !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+  }
+
+  .history-items-scroller {
+    padding: 8px 8px 36px 8px !important;
+    gap: 8px !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  .history-card-item {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 10px 8px !important;
+    gap: 8px !important;
+    border-radius: 10px !important;
+    overflow: hidden !important;
+  }
+
+  .history-main-col {
+    min-width: 0 !important;
+    flex: 1 !important;
+    overflow: hidden !important;
+  }
+
+  .history-recipient,
+  .history-street {
+    word-break: break-word !important;
+  }
+}

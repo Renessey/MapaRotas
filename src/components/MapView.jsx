@@ -21,6 +21,8 @@ import {
   X,
   MessageCircle,
   Package,
+  Menu,
+  Check,
 } from 'lucide-react';
 import itaipuacuQuadras from '../data/itaipuacuQuadras.json';
 import { groupDeliveryAddressesForMap } from '../utils/addressGrouping';
@@ -558,6 +560,7 @@ export default function MapView({
   const [searchedQuadra, setSearchedQuadra] = useState(null);
   const [prevExtHighlightSeq, setPrevExtHighlightSeq] = useState(0);
   const [viewportSeq, setViewportSeq] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Edições de quadras
   const [pendingEdits, setPendingEdits] = useState(() => new Map());
@@ -1712,7 +1715,117 @@ export default function MapView({
 
   return (
     <div className="map-container">
-      {/* Barra de Controles Flutuantes do Mapa */}
+      {/* Barra Superior Mobile: Busca de Quadras Estilizada + Menu Hambúrguer de Camadas */}
+      <div className="mobile-map-top-bar">
+        <div className="mobile-search-pill">
+          <Search size={16} className="mobile-search-icon" />
+          <input
+            type="text"
+            placeholder="Buscar quadra (ex: 52)..."
+            value={quadraSearchInput}
+            onChange={(e) => setQuadraSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            className="mobile-search-input"
+          />
+          {quadraSearchInput && (
+            <button
+              type="button"
+              className="mobile-clear-search-btn"
+              onClick={handleClearSearch}
+              title="Limpar busca"
+            >
+              <X size={15} />
+            </button>
+          )}
+          {quadraSearchStats && (
+            <span className="mobile-search-count-badge" title="Na tela / Total no loteamento">
+              {quadraSearchStats.onScreen}/{quadraSearchStats.total}
+            </span>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className={`mobile-layers-hamburger-btn ${mobileMenuOpen ? 'active' : ''}`}
+          onClick={() => setMobileMenuOpen((prev) => !prev)}
+          title="Selecionar estilo do mapa"
+          aria-label="Menu de estilos de mapa"
+        >
+          <Menu size={20} />
+        </button>
+
+        {mobileMenuOpen && (
+          <>
+            <div
+              className="mobile-layers-backdrop"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <div className="mobile-layers-menu">
+              <div className="mobile-layers-menu-header">
+                <span>Estilo do Mapa</span>
+                <button
+                  type="button"
+                  className="mobile-layers-close-btn"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="mobile-layers-options">
+                <button
+                  type="button"
+                  className={`mobile-layer-option-btn ${tileStyle === 'osm' ? 'active' : ''}`}
+                  onClick={() => {
+                    setTileStyle('osm');
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  <span className="layer-emoji">🗺️</span>
+                  <div className="layer-info">
+                    <strong>Rua</strong>
+                    <small>OpenStreetMap padrão</small>
+                  </div>
+                  {tileStyle === 'osm' && <Check size={16} className="layer-check-icon" />}
+                </button>
+
+                <button
+                  type="button"
+                  className={`mobile-layer-option-btn ${tileStyle === 'voyager' ? 'active' : ''}`}
+                  onClick={() => {
+                    setTileStyle('voyager');
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  <span className="layer-emoji">☀️</span>
+                  <div className="layer-info">
+                    <strong>Claro</strong>
+                    <small>Positron clean</small>
+                  </div>
+                  {tileStyle === 'voyager' && <Check size={16} className="layer-check-icon" />}
+                </button>
+
+                <button
+                  type="button"
+                  className={`mobile-layer-option-btn ${tileStyle === 'satellite' ? 'active' : ''}`}
+                  onClick={() => {
+                    setTileStyle('satellite');
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  <span className="layer-emoji">🛰️</span>
+                  <div className="layer-info">
+                    <strong>Satélite</strong>
+                    <small>Visão aérea real</small>
+                  </div>
+                  {tileStyle === 'satellite' && <Check size={16} className="layer-check-icon" />}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Barra de Controles Flutuantes do Mapa (Desktop: topo | Mobile: lateral direita centralizada) */}
       <div className="map-floating-controls">
         <button
           type="button"

@@ -624,9 +624,17 @@ body {
   .app-workspace.mobile-sidebar .workspace-sidebar {
     display: flex !important;
     width: 100% !important;
+    max-width: 100vw !important;
     height: 100% !important;
     border-radius: 0 !important;
     border: none !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+  }
+
+  /* No celular, a barra de abas interna da sidebar é oculta (pois usamos a bottom navbar estilo app) */
+  .sidebar-tabs-nav {
+    display: none !important;
   }
 
   /* Barra de navegação inferior estilo nativo de aplicativo */
