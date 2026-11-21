@@ -23,6 +23,8 @@ import {
   Package,
   Menu,
   Check,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import itaipuacuQuadras from '../data/itaipuacuQuadras.json';
 import { groupDeliveryAddressesForMap } from '../utils/addressGrouping';
@@ -62,6 +64,7 @@ function createCustomPinHtml({
   packageCount = 1,
   isDelivered = false,
   deliveredCount = 0,
+  isLocked = false,
 }) {
   let bgClass = 'pin-normal';
   const label = String(number);
@@ -78,7 +81,8 @@ function createCustomPinHtml({
 
   const pkgKey = packageCount > 1 ? `p${packageCount}` : '';
   const delKey = isDelivered ? 'd' : deliveredCount > 0 ? `d${deliveredCount}` : '';
-  const key = `${label}-${bgClass}-${isSelected ? 's' : ''}-${isManuallyAdjusted ? 'a' : ''}-${pkgKey}-${delKey}`;
+  const lockKey = isLocked ? 'l' : '';
+  const key = `${label}-${bgClass}-${isSelected ? 's' : ''}-${isManuallyAdjusted ? 'a' : ''}-${pkgKey}-${delKey}-${lockKey}`;
   let html = deliveryPinCache.get(key);
   if (!html) {
     if (deliveryPinCache.size > 3000) {
@@ -88,6 +92,7 @@ function createCustomPinHtml({
     const adjustedClass = isManuallyAdjusted ? 'pin-adjusted' : '';
     const multiPkgClass = packageCount > 1 ? 'pin-multi-pkg' : '';
     const deliveredClass = isDelivered ? 'pin-delivered-wrapper' : '';
+    const lockedClass = isLocked ? 'pin-locked-wrapper' : '';
 
     let topBadgeHtml = '';
     if (packageCount > 1) {
@@ -100,14 +105,27 @@ function createCustomPinHtml({
       }
     }
 
+    let lockBadgeHtml = '';
+    if (isLocked && !isDelivered) {
+      lockBadgeHtml = `
+        <span class="pin-lock-badge" title="Pino travado no mapa">
+          <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#facc15" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </span>
+      `;
+    }
+
     html = `
-      <div class="custom-marker-wrapper ${selectedClass} ${adjustedClass} ${multiPkgClass} ${deliveredClass}">
+      <div class="custom-marker-wrapper ${selectedClass} ${adjustedClass} ${multiPkgClass} ${deliveredClass} ${lockedClass}">
         ${topBadgeHtml}
         <div class="custom-marker-pin ${bgClass}">
           <span class="custom-marker-text">${isDelivered ? '✓' : label}</span>
         </div>
         ${isDelivered ? '<span class="pin-verified-badge" title="Entrega confirmada">✓</span>' : ''}
-        ${isManuallyAdjusted && !isDelivered ? '<span class="pin-adjusted-dot" title="Posição ajustada manualmente"></span>' : ''}
+        ${lockBadgeHtml}
+        ${isManuallyAdjusted && !isDelivered && !isLocked ? '<span class="pin-adjusted-dot" title="Posição ajustada manualmente"></span>' : ''}
         <div class="custom-marker-shadow"></div>
         ${isSelected ? '<div class="custom-marker-pulse"></div>' : ''}
       </div>
@@ -677,7 +695,11 @@ export default function MapView({
     const map = new Map();
     for (const g of displayGroups) {
       for (const r of g.rowIds) {
-        map.set(r, { stopNumber: g.stopNumber, isDelivered: Boolean(g.isDelivered) });
+        map.set(r, {
+          stopNumber: g.stopNumber,
+          isDelivered: Boolean(g.isDelivered),
+          isLocked: Boolean(g.isLocked),
+        });
       }
     }
     return map;
@@ -1404,6 +1426,7 @@ export default function MapView({
       const packageCount = group.packageCount || group.items.length;
       const rowIds = group.rowIds || [address.originalRow];
       const isDelivered = Boolean(group.isDelivered);
+      const isLocked = Boolean(group.isLocked);
       const isSelected = group.items.some((item) => item.originalRow === st.selectedId);
       const isFirst = index === 0;
       const isLast = index === st.displayGroups.length - 1 && st.displayGroups.length > 1;
@@ -1421,10 +1444,11 @@ export default function MapView({
         packageCount,
         isDelivered,
         deliveredCount,
+        isLocked,
       });
 
-      // Pino entregue é travado contra movimentação (não pode mais ser arrastado)
-      const isDraggable = !st.isPickingMapSpot && !isDelivered;
+      // Pino entregue ou travado não pode mais ser arrastado (evita mover o pino indevidamente ao navegar no mapa)
+      const isDraggable = !st.isPickingMapSpot && !isDelivered && !isLocked;
 
       const existing = existingMap.get(key);
       if (existing) {
@@ -1457,15 +1481,125 @@ export default function MapView({
           anchor: 'bottom',
         }).setLngLat([group.coordinates.lng, group.coordinates.lat]);
 
+        let pressTimer = null;
+        let startX = 0;
+        let startY = 0;
+        let isHolding = false;
+        let preventClickUntil = 0;
+
+        const cancelHold = () => {
+          if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+          }
+          if (isHolding) {
+            isHolding = false;
+            el.classList.remove('is-pressing-pin');
+          }
+        };
+
+        const triggerPinLockToggle = () => {
+          cancelHold();
+          preventClickUntil = Date.now() + 450;
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try {
+              navigator.vibrate(60);
+            } catch {}
+          }
+          const targetGroup = existingMap.get(key)?.group || group;
+          const targetRows = targetGroup.rowIds || [targetGroup.primary.originalRow];
+          const currentlyLocked = Boolean(targetGroup.isLocked);
+          const nextLocked = !currentlyLocked;
+          if (onUpdateAddress) {
+            onUpdateAddress(targetRows, { isLocked: nextLocked });
+          }
+        };
+
+        const onTouchStart = (e) => {
+          if (e.touches && e.touches.length > 1) {
+            cancelHold();
+            return;
+          }
+          const t = e.touches ? e.touches[0] : null;
+          if (t) {
+            startX = t.clientX;
+            startY = t.clientY;
+          }
+          isHolding = true;
+          el.classList.add('is-pressing-pin');
+          pressTimer = setTimeout(() => {
+            if (!isHolding) return;
+            triggerPinLockToggle();
+          }, 450);
+        };
+
+        const onTouchMove = (e) => {
+          if (!isHolding) return;
+          const t = e.touches ? e.touches[0] : null;
+          if (!t) return;
+          if (Math.hypot(t.clientX - startX, t.clientY - startY) > 8) {
+            cancelHold();
+          }
+        };
+
+        const onTouchEnd = () => {
+          cancelHold();
+        };
+
+        const onMouseDown = (e) => {
+          if (e.button !== 0) return;
+          startX = e.clientX;
+          startY = e.clientY;
+          isHolding = true;
+          el.classList.add('is-pressing-pin');
+          pressTimer = setTimeout(() => {
+            if (!isHolding) return;
+            triggerPinLockToggle();
+          }, 480);
+        };
+
+        const onMouseMove = (e) => {
+          if (!isHolding) return;
+          if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+            cancelHold();
+          }
+        };
+
+        const onMouseUp = () => {
+          cancelHold();
+        };
+
+        const onContextMenu = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          triggerPinLockToggle();
+        };
+
+        el.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+        el.addEventListener('touchmove', onTouchMove, { capture: true, passive: true });
+        el.addEventListener('touchend', onTouchEnd, { capture: true });
+        el.addEventListener('touchcancel', onTouchEnd, { capture: true });
+        el.addEventListener('mousedown', onMouseDown, { capture: true });
+        el.addEventListener('mousemove', onMouseMove, { capture: true });
+        el.addEventListener('mouseup', onMouseUp, { capture: true });
+        el.addEventListener('mouseleave', onMouseUp, { capture: true });
+        el.addEventListener('contextmenu', onContextMenu);
+
         const entry = {
           marker,
           el,
           iconHtml,
           isDraggable,
           group,
+          cleanup: cancelHold,
         };
 
         el.addEventListener('click', (e) => {
+          if (Date.now() < preventClickUntil) {
+            e.stopPropagation();
+            e.preventDefault();
+            return;
+          }
           e.stopPropagation();
           lastMarkerClickTimeRef.current = Date.now();
           const current = stateRef.current;
@@ -1504,6 +1638,7 @@ export default function MapView({
     // Remove marcadores que não estão mais na rota
     for (const [key, entry] of existingMap) {
       if (!desiredKeys.has(key)) {
+        entry.cleanup?.();
         entry.marker.remove();
         existingMap.delete(key);
       }
@@ -2083,6 +2218,7 @@ export default function MapView({
                     const pin = pinInfoByRow?.get(d.originalRow);
                     const stopNumber = pin?.stopNumber;
                     const isItemDelivered = Boolean(pin?.isDelivered || d.delivered);
+                    const isItemLocked = Boolean(pin?.isLocked || d.isLocked);
                     return (
                       <div
                         key={`delivery-${d.originalRow}`}
@@ -2110,6 +2246,11 @@ export default function MapView({
                           {isItemDelivered && (
                             <span className="popup-delivery-status-badge">
                               ✓ Entregue
+                            </span>
+                          )}
+                          {isItemLocked && !isItemDelivered && (
+                            <span className="popup-delivery-locked-badge" title="Pino travado contra movimentação">
+                              🔒 Travado
                             </span>
                           )}
                         </div>
@@ -2341,6 +2482,11 @@ export default function MapView({
                     <CheckCircle2 size={11} /> Entregue
                   </span>
                 )}
+                {(selectedGroup?.isLocked || selectedAddress.isLocked) && !selectedGroup?.isDelivered && !selectedAddress.delivered && (
+                  <span className="card-tag locked" title="Pino travado no mapa">
+                    <Lock size={11} /> Travado
+                  </span>
+                )}
                 {selectedGroup && selectedGroup.packageCount > 1 && (
                   <span className="card-tag pkg-count">
                     <Package size={11} /> {selectedGroup.packageCount} pkgs
@@ -2419,6 +2565,30 @@ export default function MapView({
             )}
             {onUpdateAddress && (
               <>
+                {!selectedGroup?.isDelivered && (
+                  <button
+                    type="button"
+                    className={`card-btn-action lock-pin ${(selectedGroup?.isLocked || selectedAddress.isLocked) ? 'is-locked' : ''}`}
+                    onClick={() => {
+                      const targetRows = selectedGroup?.rowIds || [selectedAddress.originalRow];
+                      const isCurrentlyLocked = Boolean(selectedGroup?.isLocked || selectedAddress.isLocked);
+                      onUpdateAddress(targetRows, { isLocked: !isCurrentlyLocked });
+                    }}
+                    title={(selectedGroup?.isLocked || selectedAddress.isLocked) ? 'Destravar pino para poder mover' : 'Travar pino no mapa (evita arrastar indevidamente)'}
+                  >
+                    {(selectedGroup?.isLocked || selectedAddress.isLocked) ? (
+                      <>
+                        <Lock size={14} />
+                        <span>Travado</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock size={14} />
+                        <span>Travar</span>
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="card-btn-action edit-pin"
@@ -2435,23 +2605,38 @@ export default function MapView({
                   <span>Editar</span>
                 </button>
                 {!selectedGroup?.isDelivered ? (
-                  <button
-                    type="button"
-                    className="card-btn-action move-pin"
-                    onClick={() => {
-                      setIsAddingQuadra(false);
-                      setPendingAddPoint(null);
-                      setRepositioningStop({
-                        address: selectedAddress,
-                        stopNumber: selectedStopNumber || selectedAddress.originalRow,
-                        targetRows: selectedGroup?.rowIds || [selectedAddress.originalRow],
-                      });
-                    }}
-                    title="Mover pino para outro ponto no mapa"
-                  >
-                    <Move size={14} />
-                    <span>Mover</span>
-                  </button>
+                  (selectedGroup?.isLocked || selectedAddress.isLocked) ? (
+                    <button
+                      type="button"
+                      className="card-btn-action move-pin locked"
+                      onClick={() => {
+                        const targetRows = selectedGroup?.rowIds || [selectedAddress.originalRow];
+                        onUpdateAddress(targetRows, { isLocked: false });
+                      }}
+                      title="Pino travado. Clique para destravar e mover"
+                    >
+                      <Lock size={14} />
+                      <span>Destravar</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="card-btn-action move-pin"
+                      onClick={() => {
+                        setIsAddingQuadra(false);
+                        setPendingAddPoint(null);
+                        setRepositioningStop({
+                          address: selectedAddress,
+                          stopNumber: selectedStopNumber || selectedAddress.originalRow,
+                          targetRows: selectedGroup?.rowIds || [selectedAddress.originalRow],
+                        });
+                      }}
+                      title="Mover pino para outro ponto no mapa"
+                    >
+                      <Move size={14} />
+                      <span>Mover</span>
+                    </button>
+                  )
                 ) : (
                   <button
                     type="button"

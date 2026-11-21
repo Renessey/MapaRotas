@@ -196,6 +196,7 @@ export function groupDeliveryAddressesForMap(addresses) {
         deliveredCount: 0,
         isDelivered: false,
         isPartiallyDelivered: false,
+        isLocked: Boolean(addr.isLocked),
       };
       groups.push(newGroup);
       if (!bucketsByKey.has(baseKey)) {
@@ -211,6 +212,7 @@ export function groupDeliveryAddressesForMap(addresses) {
     g.deliveredCount = deliveredCount;
     g.isDelivered = g.items.length > 0 && deliveredCount === g.items.length;
     g.isPartiallyDelivered = deliveredCount > 0 && deliveredCount < g.items.length;
+    g.isLocked = g.items.some((item) => Boolean(item.isLocked));
   }
 
   return groups;

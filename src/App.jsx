@@ -438,6 +438,10 @@ function App() {
       targetGroupLabel = `#${matchedGroup.stopNumber}`;
     }
 
+    if (updates.isLocked !== undefined) {
+      actionKind = updates.isLocked ? 'lock' : 'unlock';
+    }
+
     setAddresses(prev =>
       prev.map((addr, idx) => {
         if (!rowSet.has(addr.originalRow)) return addr;
@@ -481,6 +485,7 @@ function App() {
           complement: updates.complement !== undefined ? updates.complement : addr.complement,
           neighborhood: updates.neighborhood !== undefined ? updates.neighborhood : addr.neighborhood,
           phone: updates.phone !== undefined ? updates.phone : addr.phone,
+          isLocked: updates.isLocked !== undefined ? Boolean(updates.isLocked) : Boolean(addr.isLocked),
           coordinates: hasValidNewCoords ? nextCoords : addr.coordinates,
           originalCoordinates: originalCoords,
           geocoded: hasValidNewCoords ? true : addr.geocoded,
@@ -517,10 +522,14 @@ function App() {
           matchedCount > 1
             ? `Pino ${targetGroupLabel} (${matchedCount} pacotes) posicionado no local escolhido!`
             : `Pino ${targetGroupLabel} posicionado no local escolhido!`;
+      } else if (actionKind === 'lock') {
+        msg = `🔒 Pino ${targetGroupLabel} travado no mapa!`;
+      } else if (actionKind === 'unlock') {
+        msg = `🔓 Pino ${targetGroupLabel} destravado.`;
       } else {
         msg = `Dados da Parada ${targetGroupLabel} atualizados!`;
       }
-      showNotification(msg, 'success', 2500);
+      showNotification(msg, actionKind === 'lock' ? 'warning' : 'success', 2500);
     }
   }, [groupedStops, showNotification]);
 
