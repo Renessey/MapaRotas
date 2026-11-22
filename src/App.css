@@ -593,8 +593,8 @@ body {
     padding: 0 !important;
     margin: 0 !important;
     gap: 0 !important;
-    height: calc(100dvh - 62px) !important;
     height: calc(100vh - 62px) !important;
+    height: calc(100dvh - 62px) !important;
     width: 100% !important;
     overflow: hidden;
   }
@@ -630,6 +630,16 @@ body {
     border: none !important;
     box-shadow: none !important;
     overflow: hidden !important;
+  }
+
+  .sidebar-tab-content {
+    padding: 0 !important;
+    overflow: hidden !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   /* No celular, a barra de abas interna da sidebar é oculta (pois usamos a bottom navbar estilo app) */
